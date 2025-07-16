@@ -88,8 +88,12 @@
         // Mock implementation - simulate successful connection
         await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
         
-        // Generate a mock address for testing
-        const mockAddress = '7xKXtN9QM2PqWr8Z3vB4K5jL6nT2sF1dC8eR9yU3mV6p';
+        // Generate a more realistic dynamic address for testing
+        const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz123456789';
+        let mockAddress = '';
+        for (let i = 0; i < 44; i++) {
+          mockAddress += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
         
         console.log('✅ Mock connection successful, setting address:', mockAddress);
         

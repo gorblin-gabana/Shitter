@@ -242,10 +242,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   setPixel: (x, y, color) => {
-    const { activeLayer } = get();
+    const { activeLayer, currentTool } = get();
     const key = `${x},${y}`;
     
-    if (activeLayer === 'drawing') {
+    console.log('setPixel called:', { x, y, color, activeLayer, currentTool });
+    
+    // For drawing tools (pen, eraser, splatter), always use the drawing layer
+    if (currentTool === 'pen' || currentTool === 'eraser' || currentTool === 'splatter' || currentTool === 'stamp') {
+      console.log('Drawing tool detected, using drawing layer');
+      // Drawing layer - update main pixels map (topmost layer)
+      set(state => {
+        const newPixels = new Map(state.pixels);
+        newPixels.set(key, color);
+        console.log('Updated drawing pixels, new size:', newPixels.size);
+        return { pixels: newPixels };
+      });
+    } else if (activeLayer === 'drawing') {
       // Drawing layer - update main pixels map (topmost layer)
       set(state => {
         const newPixels = new Map(state.pixels);
@@ -277,10 +289,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   clearPixel: (x, y) => {
-    const { activeLayer } = get();
+    const { activeLayer, currentTool } = get();
     const key = `${x},${y}`;
     
-    if (activeLayer === 'drawing') {
+    console.log('clearPixel called:', { x, y, activeLayer, currentTool });
+    
+    // For drawing tools (pen, eraser, splatter), always use the drawing layer
+    if (currentTool === 'pen' || currentTool === 'eraser' || currentTool === 'splatter' || currentTool === 'stamp') {
+      console.log('Drawing tool detected, clearing from drawing layer');
+      // Drawing layer - clear from main pixels map
+      set(state => {
+        const newPixels = new Map(state.pixels);
+        newPixels.delete(key);
+        console.log('Cleared from drawing pixels, new size:', newPixels.size);
+        return { pixels: newPixels };
+      });
+    } else if (activeLayer === 'drawing') {
       // Drawing layer - clear from main pixels map
       set(state => {
         const newPixels = new Map(state.pixels);
@@ -547,31 +571,47 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return;
     }
 
-    // Create a larger 5x5 stamp pattern for better visibility
-    const stampSize = 5;
+    // Create a larger, more visible stamp pattern based on stamp type
+    const stampSize = stampText.length > 2 ? 7 : 5; // Larger for longer text
     const halfSize = Math.floor(stampSize / 2);
     
     set(state => {
       const newPixels = new Map(state.pixels);
       
-      // Create a more visible stamp pattern
-      for (let dx = -halfSize; dx <= halfSize; dx++) {
-        for (let dy = -halfSize; dy <= halfSize; dy++) {
-          const pixelX = x + dx;
-          const pixelY = y + dy;
-          
-          if (pixelX >= FRAME_WIDTH && pixelX < canvasSize - FRAME_WIDTH && 
-              pixelY >= FRAME_WIDTH && pixelY < canvasSize - FRAME_WIDTH) {
-            // Create different patterns based on position
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance <= halfSize) {
+      // Create different stamp patterns based on stamp text
+      if (stampText.includes('💎') || stampText.includes('🚀') || stampText.includes('🔥')) {
+        // Emoji stamps - create a distinctive pattern
+        for (let dx = -halfSize; dx <= halfSize; dx++) {
+          for (let dy = -halfSize; dy <= halfSize; dy++) {
+            const pixelX = x + dx;
+            const pixelY = y + dy;
+            
+            if (pixelX >= FRAME_WIDTH && pixelX < canvasSize - FRAME_WIDTH && 
+                pixelY >= FRAME_WIDTH && pixelY < canvasSize - FRAME_WIDTH) {
+              // Create a cross pattern for emojis
+              if (dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy)) {
+                newPixels.set(`${pixelX},${pixelY}`, color);
+              }
+            }
+          }
+        }
+      } else {
+        // Text stamps - create a solid square pattern
+        for (let dx = -halfSize; dx <= halfSize; dx++) {
+          for (let dy = -halfSize; dy <= halfSize; dy++) {
+            const pixelX = x + dx;
+            const pixelY = y + dy;
+            
+            if (pixelX >= FRAME_WIDTH && pixelX < canvasSize - FRAME_WIDTH && 
+                pixelY >= FRAME_WIDTH && pixelY < canvasSize - FRAME_WIDTH) {
               newPixels.set(`${pixelX},${pixelY}`, color);
             }
           }
         }
       }
       
-      console.log('Stamp placed, pixels updated:', newPixels.size);
+      console.log('Stamp placed, total pixels now:', newPixels.size);
+      console.log('Stamp pixels added at coordinates around:', x, y);
       return { pixels: newPixels };
     });
     

@@ -470,7 +470,10 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
             {/* Tools */}
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setTool('pen')}
+                onClick={() => {
+                  console.log('Pen tool clicked, setting tool to pen');
+                  setTool('pen');
+                }}
                 className={`p-2 rounded transition-all ${
                   currentTool === 'pen'
                     ? 'bg-green-500 text-white'
@@ -490,7 +493,10 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
                 <Eraser className="w-4 h-4" />
               </button>
               <button
-                onClick={() => setTool('stamp')}
+                onClick={() => {
+                  console.log('Stamp tool clicked, setting tool to stamp');
+                  setTool('stamp');
+                }}
                 className={`p-2 rounded transition-all ${
                   currentTool === 'stamp'
                     ? 'bg-green-500 text-white'
