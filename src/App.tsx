@@ -127,7 +127,7 @@ function AppContent() {
     return (
       <div className="h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 text-white flex flex-col overflow-hidden">
         {/* Header */}
-        <Header onNavigateToAvatarCreator={handleNavigateToAvatarCreator} />
+        <Header onNavigateToAvatarCreator={handleNavigateToAvatarCreator} onNavigateToFeed={handleNavigateToFeed} />
         
         {/* Full-Page Profile Content - No Left Sidebar */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -142,7 +142,7 @@ function AppContent() {
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 text-white flex flex-col overflow-hidden">
       {/* Header */}
-      <Header onNavigateToAvatarCreator={handleNavigateToAvatarCreator} />
+      <Header onNavigateToAvatarCreator={handleNavigateToAvatarCreator} onNavigateToFeed={handleNavigateToFeed} />
       
       <div className="flex flex-1 overflow-hidden max-w-7xl mx-auto w-full px-4">
         {/* Left Sidebar - Navigation with Tribes */}

@@ -42,8 +42,9 @@ const imageCache = new Map<string, HTMLImageElement>();
 
 export interface CanvasState {
   pixels: Map<string, string>; // Drawing layer pixels (brush strokes)
-  currentTool: 'pen' | 'eraser' | 'splatter';
+  currentTool: 'pen' | 'eraser' | 'splatter' | 'stamp';
   currentColor: string;
+  currentStamp: string; // Selected stamp design
   brushSize: number;
   showGrid: boolean;
   isDrawing: boolean;
@@ -60,8 +61,9 @@ export interface CanvasState {
   // Actions
   setPixel: (x: number, y: number, color: string) => void;
   clearPixel: (x: number, y: number) => void;
-  setTool: (tool: 'pen' | 'eraser' | 'splatter') => void;
+  setTool: (tool: 'pen' | 'eraser' | 'splatter' | 'stamp') => void;
   setColor: (color: string) => void;
+  setStamp: (stamp: string) => void;
   setBrushSize: (size: number) => void;
   toggleGrid: () => void;
   setIsDrawing: (drawing: boolean) => void;
@@ -84,6 +86,7 @@ export interface CanvasState {
   preloadImage: (url: string) => Promise<HTMLImageElement>;
   getImageFromCache: (url: string) => HTMLImageElement | null;
   replaceLayerImage: (layerType: 'face' | 'eyes' | 'smile', imageUrl: string) => void;
+  placeStamp: (x: number, y: number, stampText: string, color: string) => void;
 }
 
 const CANVAS_SIZE = 200; // 200x200 grid
@@ -179,6 +182,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   pixels: new Map(), // Drawing layer (topmost - for brush strokes/signatures)
   currentTool: 'pen',
   currentColor: '#10B981',
+  currentStamp: 'GM', // Default stamp
   brushSize: MIN_BRUSH_SIZE,
   showGrid: true,
   isDrawing: false,
@@ -213,15 +217,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   replaceLayerImage: (layerType: 'face' | 'eyes' | 'smile', imageUrl: string) => {
-    set(state => ({
-      layers: state.layers.map(layer => 
-        layer.type === layerType 
-          ? { ...layer, imageUrl, pixels: new Map() } // Clear pixels when replacing image
-          : layer
-      )
-    }));
-    // Preload the new image
-    get().preloadImage(imageUrl);
+    console.log('Replacing layer image:', layerType, 'with:', imageUrl);
+    
+    // Preload the image first to ensure it's available
+    get().preloadImage(imageUrl).then(() => {
+      console.log('Image preloaded successfully:', imageUrl);
+      
+      set(state => {
+        const newLayers = state.layers.map(layer => 
+          layer.type === layerType 
+            ? { ...layer, imageUrl, pixels: new Map() } // Clear pixels when replacing image
+            : layer
+        );
+        
+        console.log('Updated layers:', newLayers);
+        return { layers: newLayers };
+      });
+      
+      // Force a re-render by updating a timestamp or similar
+      set(state => ({ ...state }));
+    }).catch(error => {
+      console.error('Failed to preload image:', imageUrl, error);
+    });
   },
 
   setPixel: (x, y, color) => {
@@ -296,11 +313,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setTool: (tool) => set({ currentTool: tool }),
   setColor: (color) => set({ currentColor: color }),
+  setStamp: (stamp) => set({ currentStamp: stamp }),
   setBrushSize: (size) => set({ brushSize: Math.max(MIN_BRUSH_SIZE, Math.min(MAX_BRUSH_SIZE, size)) }),
   toggleGrid: () => set(state => ({ showGrid: !state.showGrid })),
   setIsDrawing: (drawing) => set({ isDrawing: drawing }),
   setUsername: (username) => set({ username }),
-  setFrame: (frame) => set({ selectedFrame: frame }),
+  setFrame: (frame) => {
+    console.log('Setting frame in store:', frame);
+    set({ selectedFrame: frame });
+    // Force immediate re-render by triggering a state change
+    const currentState = get();
+    set({ ...currentState, selectedFrame: { ...frame } });
+  },
 
   clearCanvas: () => {
     set(state => ({
@@ -508,5 +532,55 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }));
     // Preload the image
     get().preloadImage(imageUrl);
+  },
+
+  placeStamp: (x, y, stampText, color) => {
+    const { canvasSize } = get();
+    const FRAME_WIDTH = 4;
+    
+    console.log('Placing stamp at:', x, y, 'with color:', color, 'stamp:', stampText);
+    
+    // Only place stamp in drawable area
+    if (x < FRAME_WIDTH || x >= canvasSize - FRAME_WIDTH || 
+        y < FRAME_WIDTH || y >= canvasSize - FRAME_WIDTH) {
+      console.log('Stamp outside drawable area');
+      return;
+    }
+
+    // Create a larger 5x5 stamp pattern for better visibility
+    const stampSize = 5;
+    const halfSize = Math.floor(stampSize / 2);
+    
+    set(state => {
+      const newPixels = new Map(state.pixels);
+      
+      // Create a more visible stamp pattern
+      for (let dx = -halfSize; dx <= halfSize; dx++) {
+        for (let dy = -halfSize; dy <= halfSize; dy++) {
+          const pixelX = x + dx;
+          const pixelY = y + dy;
+          
+          if (pixelX >= FRAME_WIDTH && pixelX < canvasSize - FRAME_WIDTH && 
+              pixelY >= FRAME_WIDTH && pixelY < canvasSize - FRAME_WIDTH) {
+            // Create different patterns based on position
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance <= halfSize) {
+              newPixels.set(`${pixelX},${pixelY}`, color);
+            }
+          }
+        }
+      }
+      
+      console.log('Stamp placed, pixels updated:', newPixels.size);
+      return { pixels: newPixels };
+    });
+    
+    get().addToHistory({ 
+      x, 
+      y, 
+      color, 
+      timestamp: Date.now(),
+      userId: get().username || 'anonymous'
+    });
   }
 }));

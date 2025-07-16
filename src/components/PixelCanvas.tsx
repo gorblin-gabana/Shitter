@@ -11,6 +11,7 @@ export function PixelCanvas() {
     pixels,
     currentTool,
     currentColor,
+    currentStamp,
     brushSize,
     showGrid,
     canvasSize,
@@ -22,7 +23,8 @@ export function PixelCanvas() {
     setIsDrawing,
     splatterLogo,
     preloadImage,
-    getImageFromCache
+    getImageFromCache,
+    placeStamp
   } = useCanvasStore();
 
   // Constants for frame and drawing area
@@ -151,7 +153,7 @@ export function PixelCanvas() {
       }
     });
 
-    // Draw frame as pixels around the border (after all layers, before drawing layer)
+    // Draw enhanced frame with different patterns based on frame type
     if (selectedFrame && renderDependencies.frameColors) {
       const gradient = ctx.createLinearGradient(0, 0, canvasSize, canvasSize);
       gradient.addColorStop(0, renderDependencies.frameColors[0]);
@@ -160,14 +162,74 @@ export function PixelCanvas() {
       
       ctx.fillStyle = gradient;
       
-      // Top border
-      ctx.fillRect(0, 0, canvasSize, FRAME_WIDTH);
-      // Bottom border
-      ctx.fillRect(0, canvasSize - FRAME_WIDTH, canvasSize, FRAME_WIDTH);
-      // Left border
-      ctx.fillRect(0, 0, FRAME_WIDTH, canvasSize);
-      // Right border
-      ctx.fillRect(canvasSize - FRAME_WIDTH, 0, FRAME_WIDTH, canvasSize);
+      // Create different frame patterns based on type
+      switch (selectedFrame.type) {
+        case 'classic':
+          // Double border effect
+          ctx.fillRect(0, 0, canvasSize, FRAME_WIDTH);
+          ctx.fillRect(0, canvasSize - FRAME_WIDTH, canvasSize, FRAME_WIDTH);
+          ctx.fillRect(0, 0, FRAME_WIDTH, canvasSize);
+          ctx.fillRect(canvasSize - FRAME_WIDTH, 0, FRAME_WIDTH, canvasSize);
+          
+          // Inner border for double effect
+          ctx.fillStyle = renderDependencies.frameColors[2] || renderDependencies.frameColors[0];
+          ctx.fillRect(1, 1, canvasSize - 2, 1);
+          ctx.fillRect(1, canvasSize - 2, canvasSize - 2, 1);
+          ctx.fillRect(1, 1, 1, canvasSize - 2);
+          ctx.fillRect(canvasSize - 2, 1, 1, canvasSize - 2);
+          break;
+          
+        case 'wooden':
+          // Dashed border effect
+          for (let i = 0; i < canvasSize; i += 6) {
+            // Top/bottom dashes
+            ctx.fillRect(i, 0, 3, FRAME_WIDTH);
+            ctx.fillRect(i, canvasSize - FRAME_WIDTH, 3, FRAME_WIDTH);
+            // Left/right dashes
+            ctx.fillRect(0, i, FRAME_WIDTH, 3);
+            ctx.fillRect(canvasSize - FRAME_WIDTH, i, FRAME_WIDTH, 3);
+          }
+          break;
+          
+        case 'neon':
+          // Glow effect with multiple layers
+          for (let layer = 0; layer < FRAME_WIDTH; layer++) {
+            const alpha = 1 - (layer / FRAME_WIDTH) * 0.5;
+            ctx.globalAlpha = alpha;
+            ctx.fillRect(layer, layer, canvasSize - layer * 2, 1);
+            ctx.fillRect(layer, canvasSize - layer - 1, canvasSize - layer * 2, 1);
+            ctx.fillRect(layer, layer, 1, canvasSize - layer * 2);
+            ctx.fillRect(canvasSize - layer - 1, layer, 1, canvasSize - layer * 2);
+          }
+          ctx.globalAlpha = 1;
+          break;
+          
+        case 'digital':
+          // Sharp, pixelated border
+          ctx.fillRect(0, 0, canvasSize, FRAME_WIDTH);
+          ctx.fillRect(0, canvasSize - FRAME_WIDTH, canvasSize, FRAME_WIDTH);
+          ctx.fillRect(0, 0, FRAME_WIDTH, canvasSize);
+          ctx.fillRect(canvasSize - FRAME_WIDTH, 0, FRAME_WIDTH, canvasSize);
+          
+          // Add digital noise pattern
+          for (let i = 0; i < FRAME_WIDTH; i++) {
+            for (let j = 0; j < canvasSize; j += 2) {
+              if (Math.random() > 0.7) {
+                ctx.fillStyle = renderDependencies.frameColors[1];
+                ctx.fillRect(i, j, 1, 1);
+                ctx.fillRect(canvasSize - i - 1, j, 1, 1);
+              }
+            }
+          }
+          break;
+          
+        default:
+          // Standard frame
+          ctx.fillRect(0, 0, canvasSize, FRAME_WIDTH);
+          ctx.fillRect(0, canvasSize - FRAME_WIDTH, canvasSize, FRAME_WIDTH);
+          ctx.fillRect(0, 0, FRAME_WIDTH, canvasSize);
+          ctx.fillRect(canvasSize - FRAME_WIDTH, 0, FRAME_WIDTH, canvasSize);
+      }
     }
 
     // Draw user pixels from drawing layer (topmost layer - for signatures/brush strokes)
@@ -252,7 +314,16 @@ export function PixelCanvas() {
 
     const { x, y } = coords;
 
-    // Apply brush size effect
+    console.log('handleDraw called - tool:', currentTool, 'coords:', x, y);
+
+    if (currentTool === 'stamp') {
+      console.log('Stamp tool detected, placing stamp');
+      // Place stamp at clicked location
+      placeStamp(x, y, currentStamp, currentColor);
+      return;
+    }
+
+    // Apply brush size effect for pen/eraser
     for (let dx = -Math.floor(brushSize / 2); dx <= Math.floor(brushSize / 2); dx++) {
       for (let dy = -Math.floor(brushSize / 2); dy <= Math.floor(brushSize / 2); dy++) {
         const pixelX = x + dx;
@@ -277,22 +348,28 @@ export function PixelCanvas() {
         }
       }
     }
-  }, [getPixelCoordinates, brushSize, currentTool, currentColor, setPixel, clearPixel, DRAWABLE_AREA_START, DRAWABLE_AREA_END]);
+  }, [getPixelCoordinates, brushSize, currentTool, currentColor, currentStamp, setPixel, clearPixel, placeStamp, DRAWABLE_AREA_START, DRAWABLE_AREA_END]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
     const coords = getPixelCoordinates(event);
     if (!coords) return;
 
+    if (currentTool === 'stamp') {
+      // For stamps, just place and don't start dragging
+      handleDraw(event);
+      return;
+    }
+
     setIsDragging(true);
     setIsDrawing(true);
     handleDraw(event);
-  }, [getPixelCoordinates, setIsDrawing, handleDraw]);
+  }, [getPixelCoordinates, currentTool, setIsDrawing, handleDraw]);
 
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
-    if (isDragging) {
+    if (isDragging && currentTool !== 'stamp') {
       handleDraw(event);
     }
-  }, [isDragging, handleDraw]);
+  }, [isDragging, currentTool, handleDraw]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);

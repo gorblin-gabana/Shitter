@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PixelCanvas } from './PixelCanvas';
 import { Card, CardContent } from './ui/Card';
 import { NFTMintModal } from './NFTMintModal';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useWalletStore } from '../stores/walletStore';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Layers, Eye, EyeOff, Palette, Image, Paintbrush, Eraser, ChevronDown, ChevronRight, Wallet, LogOut, Sparkles } from 'lucide-react';
+import { Layers, Eye, EyeOff, Palette, Image, Paintbrush, Eraser, ChevronDown, ChevronRight, Wallet, LogOut, Sparkles, Stamp } from 'lucide-react';
 
 interface ProfilePageProps {
   onNavigateToFeed?: () => void;
@@ -31,12 +31,16 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
     pixels,
     currentTool,
     currentColor,
+    currentStamp,
     brushSize,
     showGrid,
     setTool,
     setColor,
+    setStamp,
     setBrushSize,
-    toggleGrid
+    toggleGrid,
+    setPixel,
+    clearPixel
   } = useCanvasStore();
   const { 
     gameWallet, 
@@ -48,11 +52,52 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
   const { publicKey, wallet, disconnect } = useWallet();
 
   const frameOptions = [
-    { type: 'classic' as const, name: 'Classic', gradient: 'from-green-400 to-emerald-600', colors: ['#10b981', '#059669', '#047857'], pattern: 'solid' },
-    { type: 'modern' as const, name: 'Gold', gradient: 'from-yellow-400 to-orange-500', colors: ['#fbbf24', '#f59e0b', '#d97706'], pattern: 'metallic' },
-    { type: 'neon' as const, name: 'Ocean', gradient: 'from-blue-400 to-cyan-500', colors: ['#60a5fa', '#06b6d4', '#0891b2'], pattern: 'glow' },
-    { type: 'wooden' as const, name: 'Sunset', gradient: 'from-pink-400 to-purple-600', colors: ['#f472b6', '#9333ea', '#7c3aed'], pattern: 'wood-grain' },
-    { type: 'digital' as const, name: 'Fire', gradient: 'from-red-400 to-orange-600', colors: ['#f87171', '#ea580c', '#dc2626'], pattern: 'digital' },
+    { type: 'classic' as const, name: 'Classic', gradient: 'from-green-400 to-emerald-600', colors: ['#10b981', '#059669', '#047857'], pattern: 'solid', style: 'rounded-lg border-4 border-double border-green-300 shadow-lg shadow-green-500/30' },
+    { type: 'modern' as const, name: 'Gold', gradient: 'from-yellow-400 to-orange-500', colors: ['#fbbf24', '#f59e0b', '#d97706'], pattern: 'metallic', style: 'rounded-none border-4 border-yellow-400 shadow-2xl shadow-yellow-500/40' },
+    { type: 'neon' as const, name: 'Ocean', gradient: 'from-blue-400 to-cyan-500', colors: ['#60a5fa', '#06b6d4', '#0891b2'], pattern: 'glow', style: 'rounded-2xl border-4 border-cyan-400 shadow-2xl shadow-cyan-500/60 ring-2 ring-blue-300/50' },
+    { type: 'wooden' as const, name: 'Sunset', gradient: 'from-pink-400 to-purple-600', colors: ['#f472b6', '#9333ea', '#7c3aed'], pattern: 'wood-grain', style: 'rounded-lg border-4 border-dashed border-pink-400 shadow-xl shadow-purple-500/40' },
+    { type: 'digital' as const, name: 'Fire', gradient: 'from-red-400 to-orange-600', colors: ['#f87171', '#ea580c', '#dc2626'], pattern: 'digital', style: 'rounded-sm border-4 border-solid border-red-400 shadow-2xl shadow-red-500/50 ring-1 ring-orange-300' },
+  ];
+
+  // Crypto/Gen Z stamp designs - EXPANDED
+  const stampDesigns = [
+    { id: 'gm', text: 'GM', emoji: '☀️', bg: 'bg-yellow-500' },
+    { id: 'gn', text: 'GN', emoji: '🌙', bg: 'bg-blue-500' },
+    { id: 'gorb', text: 'GORB', emoji: '🐸', bg: 'bg-green-500' },
+    { id: 'diamond', text: '💎', emoji: '💎', bg: 'bg-cyan-500' },
+    { id: 'rocket', text: '🚀', emoji: '🚀', bg: 'bg-red-500' },
+    { id: 'fire', text: '🔥', emoji: '🔥', bg: 'bg-orange-500' },
+    { id: 'accepted', text: '✅', emoji: '✅', bg: 'bg-green-600' },
+    { id: 'rejected', text: '❌', emoji: '❌', bg: 'bg-red-600' },
+    { id: 'hodl', text: 'HODL', emoji: '💪', bg: 'bg-purple-500' },
+    { id: 'moon', text: '🌕', emoji: '🌕', bg: 'bg-gray-500' },
+    { id: 'lambo', text: '🏎️', emoji: '🏎️', bg: 'bg-yellow-600' },
+    { id: 'wen', text: 'WEN', emoji: '⏰', bg: 'bg-indigo-500' },
+    { id: 'fren', text: 'FREN', emoji: '🤝', bg: 'bg-pink-500' },
+    { id: 'ngmi', text: 'NGMI', emoji: '📉', bg: 'bg-red-700' },
+    { id: 'wagmi', text: 'WAGMI', emoji: '📈', bg: 'bg-green-700' },
+    { id: 'based', text: 'BASED', emoji: '😎', bg: 'bg-gray-700' },
+    // New additions
+    { id: 'lfg', text: 'LFG', emoji: '🚀', bg: 'bg-purple-600' },
+    { id: 'degen', text: 'DEGEN', emoji: '🎰', bg: 'bg-red-500' },
+    { id: 'cope', text: 'COPE', emoji: '😤', bg: 'bg-orange-600' },
+    { id: 'salty', text: 'SALTY', emoji: '🧂', bg: 'bg-blue-600' },
+    { id: 'rekt', text: 'REKT', emoji: '💀', bg: 'bg-gray-800' },
+    { id: 'pump', text: 'PUMP', emoji: '📊', bg: 'bg-green-500' },
+    { id: 'dump', text: 'DUMP', emoji: '📉', bg: 'bg-red-600' },
+    { id: 'ape', text: 'APE', emoji: '🦍', bg: 'bg-amber-700' },
+    { id: 'diamond_hands', text: '💎🙌', emoji: '💎', bg: 'bg-cyan-600' },
+    { id: 'paper_hands', text: '📄🙌', emoji: '📄', bg: 'bg-gray-400' },
+    { id: 'btfd', text: 'BTFD', emoji: '🛒', bg: 'bg-green-600' },
+    { id: 'yolo', text: 'YOLO', emoji: '🎯', bg: 'bg-yellow-500' },
+    { id: 'fomo', text: 'FOMO', emoji: '😰', bg: 'bg-orange-500' },
+    { id: 'bullish', text: 'BULLISH', emoji: '🐂', bg: 'bg-green-600' },
+    { id: 'bearish', text: 'BEARISH', emoji: '🐻', bg: 'bg-red-600' },
+    { id: 'no_cap', text: 'NO CAP', emoji: '🧢', bg: 'bg-blue-500' },
+    { id: 'facts', text: 'FACTS', emoji: '💯', bg: 'bg-purple-500' },
+    { id: 'slay', text: 'SLAY', emoji: '👑', bg: 'bg-pink-500' },
+    { id: 'vibe', text: 'VIBE', emoji: '✨', bg: 'bg-indigo-500' },
+    { id: 'bet', text: 'BET', emoji: '💸', bg: 'bg-green-500' }
   ];
 
   // Color palette - same colors as before
@@ -65,20 +110,50 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
     '#E91E63', '#795548', '#607D8B', '#9E9E9E', '#000000', '#FFFFFF'
   ];
 
+  // Dynamically list all face images in /public/face
+  const faceImages = useMemo(() => [
+    'face_1.png',
+    'face_2.png',
+    'face_3.png',
+    'face_4.png',
+    'Face_5.png',
+    'Face_6.png',
+    'Face_7.png',
+    'Face_8.png',
+    'Face_9.png',
+    'Face_10.png',
+    'Face_11.png',
+    'Face_12.png',
+  ], []);
+
+  // Helper function to get images for each layer type
   const getLayerImages = (layerId: string) => {
-    if (layerId === 'background') return [];
-    if (layerId === 'face') return [1, 2, 3, 4, 5]; // face has 5 options
-    if (layerId === 'eyes') return [1, 2, 3, 4, 5, 6]; // eyes has 6 options
-    if (layerId === 'smile') return []; // smile folder is empty - no images available
-    if (layerId === 'drawing') return []; // drawing layer has no images
-    return [1, 2, 3, 4]; // default
+    switch (layerId) {
+      case 'face':
+        // face_1.png to face_4.png, then Face_5.png to Face_12.png
+        return [
+          'face_1.png', 'face_2.png', 'face_3.png', 'face_4.png',
+          'Face_5.png', 'Face_6.png', 'Face_7.png', 'Face_8.png',
+          'Face_9.png', 'Face_10.png', 'Face_11.png', 'Face_12.png'
+        ];
+      case 'eyes':
+        // eyes_1.png to eyes_14.png (updated to show all 14)
+        return Array.from({ length: 14 }, (_, i) => `eyes_${i + 1}.png`);
+      case 'smile':
+        // smile_1.png to smile_14.png (dynamic loading from folder)
+        return Array.from({ length: 14 }, (_, i) => `smile_${i + 1}.png`);
+      default:
+        return [];
+    }
   };
 
-  const getImageUrl = (layerId: string, imageNumber: number) => {
+  const getImageUrl = (layerId: string, image: string | number) => {
     if (layerId === 'face') {
-      return imageNumber === 5 ? `/face/Face_5.png` : `/face/face_${imageNumber}.png`;
+      return `/face/${image}`;
     } else if (layerId === 'eyes') {
-      return `/eyes/eyes_${imageNumber}.png`;
+      return `/eyes/${image}`;
+    } else if (layerId === 'smile') {
+      return `/smile/${image}`;
     }
     return '';
   };
@@ -143,21 +218,12 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
 
   const walletInfo = getWalletInfo();
 
-  // Add Drawing layer to the display layers
-  const displayLayers = [
-    ...layers,
-    {
-      id: 'drawing',
-      name: 'Drawing',
-      visible: true,
-      opacity: 1.0,
-      type: 'drawing' as const,
-      pixels: new Map()
-    }
-  ];
+  // Filter out Drawing layer from sidebar display - it's always active but hidden
+  const displayLayers = layers.filter(layer => layer.type !== 'drawing');
 
   return (
     <div className="h-full flex overflow-hidden max-w-7xl mx-auto w-full px-4">
+
       {/* Left Sidebar - Accordion Layers + Frames */}
       <div className="w-96 bg-gray-900/50 backdrop-blur-sm border-r border-gray-800 flex flex-col h-full overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4">
@@ -251,14 +317,14 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
                     {(layer.type === 'face' || layer.type === 'eyes' || layer.type === 'smile') && (
                       <div className="space-y-2">
                         <div className="text-xs text-gray-400 mb-2">Choose {layer.name} Style</div>
-                        <div className="grid grid-cols-3 gap-2">
-                          {getLayerImages(layer.id).map((imageNumber) => {
-                            const imageUrl = getImageUrl(layer.id, imageNumber);
+                        <div className="grid grid-cols-4 gap-1 max-h-32 overflow-y-auto">
+                          {getLayerImages(layer.id).map((image, idx) => {
+                            const imageUrl = getImageUrl(layer.id, image);
                             return (
                               <button
-                                key={imageNumber}
+                                key={imageUrl}
                                 onClick={() => {
-                                  console.log(`Replacing ${layer.type} with:`, imageUrl);
+                                  console.log('Image clicked:', imageUrl, 'for layer:', layer.type);
                                   replaceLayerImage(layer.type as 'face' | 'eyes' | 'smile', imageUrl);
                                 }}
                                 className={`group relative overflow-hidden rounded-lg border-2 transition-all duration-200 ${
@@ -270,22 +336,22 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
                                 <div className="aspect-square bg-gray-800 flex items-center justify-center relative overflow-hidden">
                                   <img
                                     src={imageUrl}
-                                    alt={`${layer.name} ${imageNumber}`}
+                                    alt={`${layer.name} ${image}`}
                                     className="w-full h-full object-cover rounded"
                                     onError={(e) => {
                                       console.warn(`Failed to load image: ${imageUrl}`);
                                       e.currentTarget.style.display = 'none';
                                       const fallbackElement = e.currentTarget.nextElementSibling as HTMLElement;
                                       if (fallbackElement) {
-                                        fallbackElement.textContent = `${layer.name} ${imageNumber}`;
+                                        fallbackElement.textContent = `${layer.name} ${image}`;
                                         fallbackElement.classList.remove('hidden');
                                       }
                                     }}
                                   />
-                                  <span className="text-xs text-white absolute inset-0 flex items-center justify-center bg-gray-700/80 hidden">{layer.name} {imageNumber}</span>
+                                  <span className="text-xs text-white absolute inset-0 flex items-center justify-center bg-gray-700/80 hidden">{layer.name} {image}</span>
                                   {layer.imageUrl === imageUrl && (
                                     <div className="absolute inset-0 bg-green-400/20 flex items-center justify-center">
-                                      <div className="w-4 h-4 bg-green-400 rounded-full flex items-center justify-center">
+                                      <div className="w-3 h-3 bg-green-400 rounded-full flex items-center justify-center">
                                         <span className="text-xs text-gray-900">✓</span>
                                       </div>
                                     </div>
@@ -347,7 +413,7 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
             {/* Expanded Frame Content */}
             {expandedFrame && (
               <div className="p-3 border-t border-gray-700">
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-5 gap-1">
                   {frameOptions.map((frame) => (
                     <button
                       key={frame.type}
@@ -363,14 +429,14 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
                       }`}
                     >
                       <div
-                        className={`h-12 bg-gradient-to-br ${frame.gradient} flex items-center justify-center relative`}
+                        className={`h-8 bg-gradient-to-br ${frame.gradient} flex items-center justify-center relative ${frame.style}`}
                       >
-                        <div className="w-6 h-6 bg-gray-800/40 rounded border border-white/20 flex items-center justify-center">
+                        <div className="w-4 h-4 bg-gray-800/40 rounded border border-white/20 flex items-center justify-center">
                           <span className="text-xs text-white font-bold">A</span>
                         </div>
                         {selectedFrame?.type === frame.type && (
                           <div className="absolute inset-0 bg-green-400/20 flex items-center justify-center">
-                            <div className="w-4 h-4 bg-green-400 rounded-full flex items-center justify-center">
+                            <div className="w-3 h-3 bg-green-400 rounded-full flex items-center justify-center">
                               <span className="text-xs text-gray-900">✓</span>
                             </div>
                           </div>
@@ -423,6 +489,16 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
               >
                 <Eraser className="w-4 h-4" />
               </button>
+              <button
+                onClick={() => setTool('stamp')}
+                className={`p-2 rounded transition-all ${
+                  currentTool === 'stamp'
+                    ? 'bg-green-500 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                <Stamp className="w-4 h-4" />
+              </button>
             </div>
 
             {/* Brush Size */}
@@ -461,6 +537,36 @@ export function ProfilePage({ onNavigateToFeed }: ProfilePageProps = {}) {
               Grid
             </button>
           </div>
+
+          {/* Sticker Selection Panel - only when stamp tool is selected */}
+          {currentTool === 'stamp' && (
+            <div className="mb-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-gray-400">Select Sticker</div>
+                <div className="text-xs text-gray-500">{stampDesigns.length} designs</div>
+              </div>
+              <div className="grid grid-cols-6 gap-1 overflow-y-auto max-h-32 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+                {stampDesigns.map((stamp) => (
+                  <button
+                    key={stamp.id}
+                    onClick={() => setStamp(stamp.text)}
+                    className={`p-1 rounded-lg border-2 transition-all hover:scale-105 ${
+                      currentStamp === stamp.text
+                        ? 'border-white border-2 shadow-lg'
+                        : 'border-gray-600 hover:border-gray-500'
+                    } ${stamp.bg} text-white`}
+                  >
+                    <div className="text-xs font-bold text-center">
+                      {stamp.emoji}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="text-xs text-gray-500 mt-2 text-center">
+                Click on canvas to place • Selected: {currentStamp}
+              </div>
+            </div>
+          )}
 
           {/* Color Picker Section */}
           {showColorPicker && (

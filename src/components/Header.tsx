@@ -3,9 +3,10 @@ import { useCanvasStore } from '../stores/canvasStore';
 
 interface HeaderProps {
   onNavigateToAvatarCreator?: () => void;
+  onNavigateToFeed?: () => void;
 }
 
-export function Header({ onNavigateToAvatarCreator }: HeaderProps = {}) {
+export function Header({ onNavigateToAvatarCreator, onNavigateToFeed }: HeaderProps = {}) {
   const { pixels } = useCanvasStore();
 
   const handlePointsClick = () => {
@@ -17,7 +18,10 @@ export function Header({ onNavigateToAvatarCreator }: HeaderProps = {}) {
       <div className="flex items-center justify-between h-full max-w-7xl mx-auto px-4">
         {/* Logo and Brand */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
+          <button 
+            onClick={onNavigateToFeed}
+            className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+          >
             <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-emerald-500 rounded-xl flex items-center justify-center shadow-lg">
               <img src="/logo.png" alt="Shitter" className="w-8 h-8 object-contain" />
             </div>
@@ -25,7 +29,7 @@ export function Header({ onNavigateToAvatarCreator }: HeaderProps = {}) {
               <h1 className="text-xl font-bold text-white">Shitter</h1>
               <p className="text-xs text-gray-400">Express Freely</p>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Stats and Network */}
