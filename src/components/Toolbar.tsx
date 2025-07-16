@@ -8,7 +8,7 @@ import { Slider } from './ui/Slider';
 const COLOR_PALETTE = [
   '#3B82F6', '#8B5CF6', '#EF4444', '#F59E0B', 
   '#10B981', '#F97316', '#EC4899', '#6366F1',
-  '#14B8A6', '#84CC16', '#F59E0B', '#8B5CF6',
+  '#14B8A6', '#84CC16', '#22C55E', '#A855F7',
   '#000000', '#FFFFFF', '#6B7280', '#374151'
 ];
 
@@ -128,9 +128,9 @@ export function Toolbar() {
             </div>
             
             <div className="grid grid-cols-4 gap-2">
-              {COLOR_PALETTE.map((color) => (
+              {COLOR_PALETTE.map((color, index) => (
                 <button
-                  key={color}
+                  key={`${color}-${index}`}
                   className="w-8 h-8 rounded-lg border-2 border-gray-600 hover:border-gray-400 transition-colors"
                   style={{ backgroundColor: color }}
                   onClick={() => setColor(color)}

@@ -25,7 +25,7 @@ export interface Layer {
   visible: boolean;
   opacity: number;
   color?: string;
-  type: 'background' | 'face' | 'eyes' | 'smile' | 'frame';
+  type: 'background' | 'face' | 'eyes' | 'smile' | 'drawing';
   pixels: Map<string, string>;
   imageUrl?: string; // For PNG layers
 }
@@ -37,8 +37,11 @@ export interface BackgroundOption {
   type: 'solid' | 'gradient';
 }
 
+// Image cache for preventing flickering
+const imageCache = new Map<string, HTMLImageElement>();
+
 export interface CanvasState {
-  pixels: Map<string, string>;
+  pixels: Map<string, string>; // Drawing layer pixels (brush strokes)
   currentTool: 'pen' | 'eraser' | 'splatter';
   currentColor: string;
   brushSize: number;
@@ -78,6 +81,9 @@ export interface CanvasState {
   setPixelOnLayer: (layerId: string, x: number, y: number, color: string) => void;
   clearPixelOnLayer: (layerId: string, x: number, y: number) => void;
   loadLayerImage: (layerId: string, imageUrl: string) => void;
+  preloadImage: (url: string) => Promise<HTMLImageElement>;
+  getImageFromCache: (url: string) => HTMLImageElement | null;
+  replaceLayerImage: (layerType: 'face' | 'eyes' | 'smile', imageUrl: string) => void;
 }
 
 const CANVAS_SIZE = 200; // 200x200 grid
@@ -87,28 +93,28 @@ const MAX_BRUSH_SIZE = 10;
 const DEFAULT_FRAMES: FrameConfig[] = [
   {
     type: 'classic',
-    colors: ['#8B4513', '#A0522D', '#CD853F'],
-    pattern: 'wood-grain'
+    colors: ['#10b981', '#059669', '#047857'],
+    pattern: 'solid'
   },
   {
     type: 'modern',
-    colors: ['#2F2F2F', '#4F4F4F', '#6F6F6F'],
+    colors: ['#fbbf24', '#f59e0b', '#d97706'],
     pattern: 'metallic'
   },
   {
     type: 'neon',
-    colors: ['#00FFFF', '#FF00FF', '#FFFF00'],
+    colors: ['#60a5fa', '#06b6d4', '#0891b2'],
     pattern: 'glow'
   },
   {
     type: 'wooden',
-    colors: ['#DEB887', '#F4A460', '#D2691E'],
-    pattern: 'natural'
+    colors: ['#f472b6', '#9333ea', '#7c3aed'],
+    pattern: 'wood-grain'
   },
   {
     type: 'digital',
-    colors: ['#00FF00', '#0080FF', '#FF0080'],
-    pattern: 'pixel'
+    colors: ['#f87171', '#ea580c', '#dc2626'],
+    pattern: 'digital'
   }
 ];
 
@@ -129,12 +135,13 @@ const backgroundOptions: BackgroundOption[] = [
   { id: 'aurora', name: 'Aurora', value: 'linear-gradient(135deg, #00c6ff, #0072ff)', type: 'gradient' }
 ];
 
+// Proper 4-layer system: background, face, eyes, smile (in rendering order)
 const defaultLayers: Layer[] = [
   {
     id: 'background',
     name: 'Background',
     visible: true,
-    opacity: 100,
+    opacity: 1.0,
     color: '#0F172A',
     type: 'background',
     pixels: new Map()
@@ -143,44 +150,33 @@ const defaultLayers: Layer[] = [
     id: 'face',
     name: 'Face',
     visible: true,
-    opacity: 100,
-    color: '#10B981',
+    opacity: 1.0,
     type: 'face',
     pixels: new Map(),
-    imageUrl: '/face_1.png' // Default face image
+    imageUrl: '/face/face_1.png'
   },
   {
     id: 'eyes',
     name: 'Eyes',
     visible: true,
-    opacity: 100,
-    color: '#000000',
+    opacity: 1.0,
     type: 'eyes',
     pixels: new Map(),
-    imageUrl: '/face_2.png' // Default eyes image
+    imageUrl: '/eyes/eyes_1.png'
   },
   {
     id: 'smile',
     name: 'Smile',
     visible: true,
-    opacity: 100,
-    color: '#EF4444',
+    opacity: 1.0,
     type: 'smile',
     pixels: new Map(),
-    imageUrl: '/face_3.png' // Default smile image
-  },
-  {
-    id: 'frame',
-    name: 'Frame',
-    visible: true,
-    opacity: 100,
-    type: 'frame',
-    pixels: new Map()
+    imageUrl: undefined // No default smile image
   }
 ];
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
-  pixels: new Map(),
+  pixels: new Map(), // Drawing layer (topmost - for brush strokes/signatures)
   currentTool: 'pen',
   currentColor: '#10B981',
   brushSize: MIN_BRUSH_SIZE,
@@ -193,30 +189,66 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   availableFrames: DEFAULT_FRAMES,
   logoDesigns: [],
   layers: defaultLayers,
-  activeLayer: 'face',
+  activeLayer: 'drawing', // Start with drawing layer active for brush strokes
   backgroundOptions,
 
+  preloadImage: async (url: string) => {
+    if (imageCache.has(url)) {
+      return imageCache.get(url)!;
+    }
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        imageCache.set(url, img);
+        resolve(img);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  },
+
+  getImageFromCache: (url: string) => {
+    return imageCache.get(url) || null;
+  },
+
+  replaceLayerImage: (layerType: 'face' | 'eyes' | 'smile', imageUrl: string) => {
+    set(state => ({
+      layers: state.layers.map(layer => 
+        layer.type === layerType 
+          ? { ...layer, imageUrl, pixels: new Map() } // Clear pixels when replacing image
+          : layer
+      )
+    }));
+    // Preload the new image
+    get().preloadImage(imageUrl);
+  },
+
   setPixel: (x, y, color) => {
-    const { activeLayer, layers } = get();
+    const { activeLayer } = get();
     const key = `${x},${y}`;
     
-    // Set pixel on active layer
-    set(state => {
-      const newLayers = state.layers.map(layer => {
-        if (layer.id === activeLayer) {
-          const newPixels = new Map(layer.pixels);
-          newPixels.set(key, color);
-          return { ...layer, pixels: newPixels };
-        }
-        return layer;
+    if (activeLayer === 'drawing') {
+      // Drawing layer - update main pixels map (topmost layer)
+      set(state => {
+        const newPixels = new Map(state.pixels);
+        newPixels.set(key, color);
+        return { pixels: newPixels };
       });
-      
-      // Also update main pixels map for rendering
-      const newPixels = new Map(state.pixels);
-      newPixels.set(key, color);
-      
-      return { layers: newLayers, pixels: newPixels };
-    });
+    } else {
+      // Other layers - update specific layer
+      set(state => {
+        const newLayers = state.layers.map(layer => {
+          if (layer.id === activeLayer) {
+            const newPixels = new Map(layer.pixels);
+            newPixels.set(key, color);
+            return { ...layer, pixels: newPixels };
+          }
+          return layer;
+        });
+        return { layers: newLayers };
+      });
+    }
     
     get().addToHistory({ 
       x, 
@@ -231,22 +263,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const { activeLayer } = get();
     const key = `${x},${y}`;
     
-    set(state => {
-      const newLayers = state.layers.map(layer => {
-        if (layer.id === activeLayer) {
-          const newPixels = new Map(layer.pixels);
-          newPixels.delete(key);
-          return { ...layer, pixels: newPixels };
-        }
-        return layer;
+    if (activeLayer === 'drawing') {
+      // Drawing layer - clear from main pixels map
+      set(state => {
+        const newPixels = new Map(state.pixels);
+        newPixels.delete(key);
+        return { pixels: newPixels };
       });
-      
-      // Also update main pixels map
-      const newPixels = new Map(state.pixels);
-      newPixels.delete(key);
-      
-      return { layers: newLayers, pixels: newPixels };
-    });
+    } else {
+      // Other layers - clear from specific layer
+      set(state => {
+        const newLayers = state.layers.map(layer => {
+          if (layer.id === activeLayer) {
+            const newPixels = new Map(layer.pixels);
+            newPixels.delete(key);
+            return { ...layer, pixels: newPixels };
+          }
+          return layer;
+        });
+        return { layers: newLayers };
+      });
+    }
     
     get().addToHistory({ 
       x, 
@@ -267,10 +304,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   clearCanvas: () => {
     set(state => ({
-      pixels: new Map(),
+      pixels: new Map(), // Clear drawing layer
       layers: state.layers.map(layer => ({
         ...layer,
-        pixels: new Map()
+        pixels: new Map() // Clear all layer pixels
       })),
       history: []
     }));
@@ -354,10 +391,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     ];
     
     patterns.forEach(({ x, y, color }) => {
+      const frameWidth = 4;
       const pixelX = centerX + x;
       const pixelY = centerY + y;
       
-      if (pixelX >= 2 && pixelX < canvasSize - 2 && pixelY >= 2 && pixelY < canvasSize - 2) {
+      if (pixelX >= frameWidth && pixelX < canvasSize - frameWidth && 
+          pixelY >= frameWidth && pixelY < canvasSize - frameWidth) {
         newPixels.set(`${pixelX},${pixelY}`, color);
         
         // Add some randomness
@@ -367,7 +406,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           const roundedX = Math.round(randomX);
           const roundedY = Math.round(randomY);
           
-          if (roundedX >= 2 && roundedX < canvasSize - 2 && roundedY >= 2 && roundedY < canvasSize - 2) {
+          if (roundedX >= frameWidth && roundedX < canvasSize - frameWidth && 
+              roundedY >= frameWidth && roundedY < canvasSize - frameWidth) {
             newPixels.set(`${roundedX},${roundedY}`, color);
           }
         }
@@ -382,10 +422,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const colors = ['#10B981', '#22D3EE', '#A855F7', '#F59E0B', '#EF4444', '#8B5CF6'];
     const newPixels = new Map();
     
-    // Generate random pixels
+    // Generate random pixels in drawable area only
     for (let i = 0; i < 500; i++) {
-      const x = Math.floor(Math.random() * (canvasSize - 4)) + 2; // Avoid frame area
-      const y = Math.floor(Math.random() * (canvasSize - 4)) + 2;
+      const frameWidth = 4;
+      const x = Math.floor(Math.random() * (canvasSize - frameWidth * 2)) + frameWidth;
+      const y = Math.floor(Math.random() * (canvasSize - frameWidth * 2)) + frameWidth;
       const color = colors[Math.floor(Math.random() * colors.length)];
       newPixels.set(`${x},${y}`, color);
     }
@@ -465,5 +506,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         layer.id === layerId ? { ...layer, imageUrl } : layer
       )
     }));
+    // Preload the image
+    get().preloadImage(imageUrl);
   }
 }));

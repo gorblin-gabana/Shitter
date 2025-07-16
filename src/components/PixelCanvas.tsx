@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useCanvasStore } from '../stores/canvasStore';
 
 export function PixelCanvas() {
@@ -20,23 +20,30 @@ export function PixelCanvas() {
     setPixel,
     clearPixel,
     setIsDrawing,
-    splatterLogo
+    splatterLogo,
+    preloadImage,
+    getImageFromCache
   } = useCanvasStore();
 
-
+  // Constants for frame and drawing area
+  const FRAME_WIDTH = 4;
+  const DRAWABLE_AREA_START = FRAME_WIDTH;
+  const DRAWABLE_AREA_END = canvasSize - FRAME_WIDTH;
 
   // Calculate exact pixel scale for 200x200 grid
   useEffect(() => {
     const updateScale = () => {
       const container = containerRef.current;
       if (container) {
-        const maxWidth = window.innerWidth * 0.5; // Use 50% for center space
-        const maxHeight = window.innerHeight * 0.8;
-        const maxSize = Math.min(maxWidth, maxHeight);
+        // Get container dimensions
+        const rect = container.getBoundingClientRect();
+        const availableWidth = rect.width - 64; // Account for padding
+        const availableHeight = rect.height - 64; // Account for padding
+        const maxSize = Math.min(availableWidth, availableHeight);
         
         // Calculate scale to ensure exactly 200x200 pixels are visible
         const pixelSize = Math.floor(maxSize / canvasSize);
-        setCanvasScale(Math.max(2, pixelSize)); // Minimum 2px per grid pixel
+        setCanvasScale(Math.max(3, pixelSize)); // Minimum 3px per grid pixel for better visibility
       }
     };
 
@@ -46,7 +53,33 @@ export function PixelCanvas() {
     return () => window.removeEventListener('resize', updateScale);
   }, [canvasSize]);
 
-  // Render canvas with layers and frame as pixels
+  // Preload all layer images on mount and when they change
+  useEffect(() => {
+    layers.forEach(layer => {
+      if (layer.imageUrl && layer.visible) {
+        preloadImage(layer.imageUrl).catch(console.warn);
+      }
+    });
+  }, [layers, preloadImage]);
+
+  // Memoize render dependencies to prevent unnecessary re-renders
+  const renderDependencies = useMemo(() => ({
+    pixelsArray: Array.from(pixels.entries()),
+    layersData: layers.map(layer => ({
+      id: layer.id,
+      type: layer.type,
+      visible: layer.visible,
+      opacity: layer.opacity,
+      color: layer.color,
+      imageUrl: layer.imageUrl,
+      pixelsArray: Array.from(layer.pixels.entries())
+    })),
+    frameType: selectedFrame?.type,
+    frameColors: selectedFrame?.colors,
+    showGridState: showGrid
+  }), [pixels, layers, selectedFrame, showGrid]);
+
+  // Optimized render function with image caching
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -64,8 +97,8 @@ export function PixelCanvas() {
     // Clear canvas
     ctx.clearRect(0, 0, canvasSize, canvasSize);
 
-    // Render layers in order: background, face, eyes, smile, frame
-    layers.forEach(layer => {
+    // Render layers in order: background, face, eyes, smile
+    renderDependencies.layersData.forEach(layer => {
       if (!layer.visible) return;
       
       if (layer.type === 'background') {
@@ -85,33 +118,31 @@ export function PixelCanvas() {
           ctx.fillStyle = layer.color || '#0F172A';
         }
         ctx.fillRect(0, 0, canvasSize, canvasSize);
-      } else if (layer.type === 'frame') {
-        // Draw frame as pixels around the border
-        const frameWidth = 4; // 4 pixel frame width
-        if (selectedFrame) {
-          const gradient = ctx.createLinearGradient(0, 0, canvasSize, canvasSize);
-          gradient.addColorStop(0, selectedFrame.colors[0]);
-          gradient.addColorStop(0.5, selectedFrame.colors[1]);
-          gradient.addColorStop(1, selectedFrame.colors[2] || selectedFrame.colors[0]);
-          
-          ctx.fillStyle = gradient;
-          
-          // Top border
-          ctx.fillRect(0, 0, canvasSize, frameWidth);
-          // Bottom border
-          ctx.fillRect(0, canvasSize - frameWidth, canvasSize, frameWidth);
-          // Left border
-          ctx.fillRect(0, 0, frameWidth, canvasSize);
-          // Right border
-          ctx.fillRect(canvasSize - frameWidth, 0, frameWidth, canvasSize);
-        }
       } else {
-        // For face, eyes, smile - these will be PNG images loaded as layers
-        // For now, render any pixels from the layer
-        layer.pixels.forEach((color, key) => {
+        // For face, eyes, smile - use cached images
+        if (layer.imageUrl && layer.visible) {
+          const cachedImg = getImageFromCache(layer.imageUrl);
+          if (cachedImg) {
+            ctx.globalAlpha = layer.opacity;
+            // Draw the image scaled to fit the drawable area (avoiding frame area)
+            const drawableSize = canvasSize - (FRAME_WIDTH * 2);
+            ctx.drawImage(
+              cachedImg,
+              FRAME_WIDTH, // x position (inside frame)
+              FRAME_WIDTH, // y position (inside frame)
+              drawableSize, // width
+              drawableSize  // height
+            );
+            ctx.globalAlpha = 1;
+          }
+        }
+        
+        // Also render any pixels from the layer (for custom drawing on layers)
+        layer.pixelsArray.forEach(([key, color]) => {
           const [x, y] = key.split(',').map(Number);
-          if (x >= 0 && x < canvasSize && y >= 0 && y < canvasSize) {
-            ctx.globalAlpha = layer.opacity / 100;
+          if (x >= DRAWABLE_AREA_START && x < DRAWABLE_AREA_END && 
+              y >= DRAWABLE_AREA_START && y < DRAWABLE_AREA_END) {
+            ctx.globalAlpha = layer.opacity;
             ctx.fillStyle = color;
             ctx.fillRect(x, y, 1, 1);
             ctx.globalAlpha = 1;
@@ -120,20 +151,38 @@ export function PixelCanvas() {
       }
     });
 
-    // Draw user pixels (on top of layers)
-    pixels.forEach((color, key) => {
+    // Draw frame as pixels around the border (after all layers, before drawing layer)
+    if (selectedFrame && renderDependencies.frameColors) {
+      const gradient = ctx.createLinearGradient(0, 0, canvasSize, canvasSize);
+      gradient.addColorStop(0, renderDependencies.frameColors[0]);
+      gradient.addColorStop(0.5, renderDependencies.frameColors[1]);
+      gradient.addColorStop(1, renderDependencies.frameColors[2] || renderDependencies.frameColors[0]);
+      
+      ctx.fillStyle = gradient;
+      
+      // Top border
+      ctx.fillRect(0, 0, canvasSize, FRAME_WIDTH);
+      // Bottom border
+      ctx.fillRect(0, canvasSize - FRAME_WIDTH, canvasSize, FRAME_WIDTH);
+      // Left border
+      ctx.fillRect(0, 0, FRAME_WIDTH, canvasSize);
+      // Right border
+      ctx.fillRect(canvasSize - FRAME_WIDTH, 0, FRAME_WIDTH, canvasSize);
+    }
+
+    // Draw user pixels from drawing layer (topmost layer - for signatures/brush strokes)
+    renderDependencies.pixelsArray.forEach(([key, color]) => {
       const [x, y] = key.split(',').map(Number);
-      const frameWidth = 4;
       // Only draw pixels in the drawable area (inside frame)
-      if (x >= frameWidth && x < canvasSize - frameWidth && 
-          y >= frameWidth && y < canvasSize - frameWidth) {
+      if (x >= DRAWABLE_AREA_START && x < DRAWABLE_AREA_END && 
+          y >= DRAWABLE_AREA_START && y < DRAWABLE_AREA_END) {
         ctx.fillStyle = color;
         ctx.fillRect(x, y, 1, 1);
       }
     });
 
     // Draw grid if enabled
-    if (showGrid) {
+    if (renderDependencies.showGridState) {
       ctx.strokeStyle = '#10B981';
       ctx.lineWidth = 0.1;
       ctx.globalAlpha = 0.2;
@@ -172,128 +221,118 @@ export function PixelCanvas() {
       
       ctx.globalAlpha = 1;
     }
-  }, [pixels, showGrid, canvasSize, selectedFrame, layers]);
+  }, [renderDependencies, canvasSize, getImageFromCache, FRAME_WIDTH, DRAWABLE_AREA_START, DRAWABLE_AREA_END]);
 
   const getPixelCoordinates = useCallback((event: React.MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
     const rect = canvas.getBoundingClientRect();
-    const x = Math.floor((event.clientX - rect.left) / canvasScale);
-    const y = Math.floor((event.clientY - rect.top) / canvasScale);
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
 
-    // Ensure we're not drawing in the frame area
-    const frameWidth = 4;
-    if (x >= frameWidth && x < canvasSize - frameWidth && 
-        y >= frameWidth && y < canvasSize - frameWidth) {
-      return { x, y };
-    }
-    return null;
-  }, [canvasScale, canvasSize]);
+    const canvasX = (event.clientX - rect.left) * scaleX;
+    const canvasY = (event.clientY - rect.top) * scaleY;
 
-  const handlePixelAction = useCallback((x: number, y: number) => {
-    if (currentTool === 'splatter') {
-      splatterLogo(x, y);
-      return;
+    const pixelX = Math.floor(canvasX);
+    const pixelY = Math.floor(canvasY);
+
+    // Constrain to drawable area only (inside frame)
+    if (pixelX < DRAWABLE_AREA_START || pixelX >= DRAWABLE_AREA_END || 
+        pixelY < DRAWABLE_AREA_START || pixelY >= DRAWABLE_AREA_END) {
+      return null; // Outside drawable area
     }
 
-    // Apply brush size with minimum 1 grid unit
-    const effectiveBrushSize = Math.max(1, brushSize);
-    const halfBrush = Math.floor(effectiveBrushSize / 2);
-    const frameWidth = 4;
-    
-    // Track pixels changed for transaction
-    const pixelsChanged: Array<{x: number, y: number, color: string}> = [];
-    
-    for (let dx = -halfBrush; dx <= halfBrush; dx++) {
-      for (let dy = -halfBrush; dy <= halfBrush; dy++) {
+    return { x: pixelX, y: pixelY };
+  }, [DRAWABLE_AREA_START, DRAWABLE_AREA_END]);
+
+  const handleDraw = useCallback((event: React.MouseEvent) => {
+    const coords = getPixelCoordinates(event);
+    if (!coords) return;
+
+    const { x, y } = coords;
+
+    // Apply brush size effect
+    for (let dx = -Math.floor(brushSize / 2); dx <= Math.floor(brushSize / 2); dx++) {
+      for (let dy = -Math.floor(brushSize / 2); dy <= Math.floor(brushSize / 2); dy++) {
         const pixelX = x + dx;
         const pixelY = y + dy;
-        
-        // Make sure we stay within bounds and outside frame area
-        if (pixelX >= frameWidth && pixelX < canvasSize - frameWidth && 
-            pixelY >= frameWidth && pixelY < canvasSize - frameWidth) {
-          if (currentTool === 'pen') {
-            setPixel(pixelX, pixelY, currentColor);
-            pixelsChanged.push({x: pixelX, y: pixelY, color: currentColor});
-          } else if (currentTool === 'eraser') {
-            clearPixel(pixelX, pixelY);
-            pixelsChanged.push({x: pixelX, y: pixelY, color: 'transparent'});
+
+        // Ensure we stay within drawable bounds
+        if (pixelX >= DRAWABLE_AREA_START && pixelX < DRAWABLE_AREA_END && 
+            pixelY >= DRAWABLE_AREA_START && pixelY < DRAWABLE_AREA_END) {
+          
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance <= brushSize / 2) {
+            if (currentTool === 'pen') {
+              setPixel(pixelX, pixelY, currentColor);
+            } else if (currentTool === 'eraser') {
+              clearPixel(pixelX, pixelY);
+            } else if (currentTool === 'splatter') {
+              if (Math.random() < 0.3) { // 30% chance for splatter effect
+                setPixel(pixelX, pixelY, currentColor);
+              }
+            }
           }
         }
       }
     }
-    
-  }, [brushSize, canvasSize, currentTool, currentColor, setPixel, clearPixel, splatterLogo]);
+  }, [getPixelCoordinates, brushSize, currentTool, currentColor, setPixel, clearPixel, DRAWABLE_AREA_START, DRAWABLE_AREA_END]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
     const coords = getPixelCoordinates(event);
-    if (coords) {
-      setIsDragging(true);
-      setIsDrawing(true);
-      handlePixelAction(coords.x, coords.y);
-    }
-  }, [getPixelCoordinates, handlePixelAction, setIsDrawing]);
+    if (!coords) return;
+
+    setIsDragging(true);
+    setIsDrawing(true);
+    handleDraw(event);
+  }, [getPixelCoordinates, setIsDrawing, handleDraw]);
 
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
-    if (!isDragging) return;
-    
-    const coords = getPixelCoordinates(event);
-    if (coords) {
-      handlePixelAction(coords.x, coords.y);
+    if (isDragging) {
+      handleDraw(event);
     }
-  }, [isDragging, getPixelCoordinates, handlePixelAction]);
+  }, [isDragging, handleDraw]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
     setIsDrawing(false);
   }, [setIsDrawing]);
 
+  const handleMouseLeave = useCallback(() => {
+    setIsDragging(false);
+    setIsDrawing(false);
+  }, [setIsDrawing]);
+
+  // Handle double-click for logo splatter
+  const handleDoubleClick = useCallback((event: React.MouseEvent) => {
+    const coords = getPixelCoordinates(event);
+    if (coords) {
+      splatterLogo(coords.x, coords.y);
+    }
+  }, [getPixelCoordinates, splatterLogo]);
+
   return (
     <div 
       ref={containerRef}
-      className="flex-1 flex items-center justify-center bg-gradient-to-br from-gray-900 via-black to-gray-800 relative overflow-hidden w-full h-full p-8"
+      className="w-full h-full flex items-center justify-center bg-gray-900/30 rounded-lg border border-gray-700"
     >
-      {/* Animated Background Pattern */}
-      <div className="absolute inset-0 opacity-5">
-        <div className="w-full h-full animate-pulse" style={{
-          backgroundImage: `
-            radial-gradient(circle at 25% 25%, rgba(16, 185, 129, 0.1) 0%, transparent 50%),
-            radial-gradient(circle at 75% 75%, rgba(34, 211, 238, 0.1) 0%, transparent 50%),
-            linear-gradient(rgba(16, 185, 129, 0.05) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(16, 185, 129, 0.05) 1px, transparent 1px)
-          `,
-          backgroundSize: '100% 100%, 100% 100%, 20px 20px, 20px 20px'
-        }} />
-      </div>
-      
-      {/* Pixel Count Display */}
-      <div className="absolute top-4 left-4 z-10">
-        <div className="flex items-center gap-2 px-3 py-2 bg-black/60 backdrop-blur-sm rounded-lg border border-purple-500/30">
-          <span className="text-purple-400 font-mono font-bold">{pixels.size.toLocaleString()}</span>
-          <span className="text-gray-300 text-sm">pixels</span>
-        </div>
-      </div>
-      
-      <div className="relative z-10 flex items-center justify-center">
-        {/* Main Canvas - Pixel Perfect */}
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: `${canvasSize * canvasScale}px`,
-            height: `${canvasSize * canvasScale}px`,
-            imageRendering: 'pixelated',
-            cursor: currentTool === 'pen' ? 'crosshair' : 
-                   currentTool === 'eraser' ? 'grab' : 
-                   currentTool === 'splatter' ? 'copy' : 'default'
-          }}
-          className="border-2 border-green-500/40 rounded-lg shadow-2xl shadow-green-500/20 bg-transparent relative z-10"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-        />
-      </div>
+      <canvas
+        ref={canvasRef}
+        className="border border-gray-600 rounded cursor-crosshair shadow-xl"
+        style={{
+          width: `${canvasSize * canvasScale}px`,
+          height: `${canvasSize * canvasScale}px`,
+          imageRendering: 'pixelated',
+          maxWidth: '100%',
+          maxHeight: '100%'
+        }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        onDoubleClick={handleDoubleClick}
+      />
     </div>
   );
 }

@@ -1,13 +1,20 @@
 import React from 'react';
 import { useCanvasStore } from '../stores/canvasStore';
-import { Toolbar } from './Toolbar';
 
-export function Header() {
+interface HeaderProps {
+  onNavigateToAvatarCreator?: () => void;
+}
+
+export function Header({ onNavigateToAvatarCreator }: HeaderProps = {}) {
   const { pixels } = useCanvasStore();
+
+  const handlePointsClick = () => {
+    window.open('https://points.gorbchain.xyz', '_blank');
+  };
 
   return (
     <header className="bg-black/90 backdrop-blur-md border-b border-gray-800 p-4 h-20 flex-shrink-0">
-      <div className="flex items-center justify-between h-full max-w-7xl mx-auto">
+      <div className="flex items-center justify-between h-full max-w-7xl mx-auto px-4">
         {/* Logo and Brand */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
@@ -21,19 +28,17 @@ export function Header() {
           </div>
         </div>
 
-        {/* Toolbar */}
-        <div className="flex-1 flex justify-center max-w-2xl">
-          <Toolbar />
-        </div>
-
         {/* Stats and Network */}
         <div className="flex items-center gap-6">
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg px-3 py-2">
+          <button 
+            onClick={handlePointsClick}
+            className="bg-gray-800/50 hover:bg-gray-700/50 border border-gray-700 hover:border-gray-600 rounded-lg px-3 py-2 transition-colors cursor-pointer"
+          >
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-gray-400">Activity:</span>
+              <span className="text-gray-400">Points:</span>
               <span className="text-green-400 font-mono font-medium">{pixels.size}</span>
             </div>
-          </div>
+          </button>
           <div className="bg-gray-800/50 border border-gray-700 rounded-lg px-3 py-2">
             <div className="flex items-center gap-2 text-sm">
               <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>

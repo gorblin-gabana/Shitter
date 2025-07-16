@@ -47,10 +47,13 @@ const secondaryWallets: WalletOption[] = [
   }
 ];
 
+// Remove prop type for onTrashpackLogin since we're going direct to dashboard
 export function WalletConnection() {
   const { connected, publicKey, connect, wallets, select } = useWallet();
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [trashpackError, setTrashpackError] = useState<string | null>(null);
+  const [trashpackAddress, setTrashpackAddress] = useState<string | null>(null);
   const {
     gameWallet,
     generateGameWallet,
@@ -93,11 +96,62 @@ export function WalletConnection() {
   }, [gameWallet, generateGameWallet]);
 
 
+  // TrashPack login logic
+  const loginWithTrashpack = async () => {
+    console.log('🚀 Starting TrashPack login...');
+    setIsConnecting(true);
+    setTrashpackError(null);
+    setSelectedWallet(primaryWallet.id);
+    
+    try {
+      console.log('🔍 Checking for TrashPack wallet...');
+      
+      if (typeof window === 'undefined') {
+        console.log('❌ Window is undefined');
+        setTrashpackError('Window is undefined.');
+        return;
+      }
+      
+      if (!(window as any).trashpack) {
+        console.log('❌ TrashPack wallet not found on window object');
+        setTrashpackError('TrashPack wallet not found. Please install the TrashPack extension.');
+        window.open(primaryWallet.url, '_blank');
+        return;
+      }
+      
+      const trashpack = (window as any).trashpack;
+      console.log('✅ TrashPack wallet found:', trashpack);
+      
+      console.log('🔗 Attempting to connect...');
+      const result = await trashpack.connect();
+      console.log('✅ Connection result:', result);
+      
+      const address = result?.publicKey?.toString?.() || result?.publicKey;
+      console.log('📍 Address extracted:', address);
+      
+      if (!address) {
+        throw new Error('No address returned from wallet connection');
+      }
+      
+      // Set the main wallet in the store - this will trigger the dashboard
+      setMainWallet(address);
+      setTrashpackAddress(address);
+      setSelectedWallet(null);
+      
+      console.log('✅ TrashPack login successful! Dashboard should now load...');
+      
+    } catch (e: any) {
+      console.error('❌ TrashPack login failed:', e);
+      setTrashpackError(e?.message || 'Failed to connect to TrashPack wallet.');
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   const handleWalletSelect = async (walletOption: WalletOption) => {
     if (walletOption.isOfficialWallet) {
-      // Handle TrashPack wallet - redirect to app or show installation instructions
-      window.open(walletOption.url, '_blank');
+      // Use TrashPack login logic
+      await loginWithTrashpack();
       return;
     }
 
@@ -185,6 +239,9 @@ export function WalletConnection() {
                   </span>
                 </div>
                 <p className="text-gray-300 text-sm">{primaryWallet.description}</p>
+                {trashpackError && (
+                  <div className="text-red-400 text-xs mt-2">{trashpackError}</div>
+                )}
               </div>
               
               {/* Connect Button */}
@@ -193,8 +250,8 @@ export function WalletConnection() {
                   <div className="w-6 h-6 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    <span className="text-sm font-semibold">Get Wallet</span>
-                    <ExternalLink className="w-5 h-5" />
+                    <span className="text-sm font-semibold">Connect</span>
+                    <Wallet className="w-5 h-5" />
                   </>
                 )}
               </div>

@@ -10,6 +10,10 @@ export interface WalletState {
   gameWallet: Keypair | null;
   gameBalance: number;
   
+  // TrashPack wallet connection state
+  isTrashpackConnected: boolean;
+  trashpackAddress: string | null;
+  
   // Connection
   connection: Connection | null;
   network: 'devnet' | 'testnet' | 'mainnet';
@@ -24,6 +28,9 @@ export interface WalletState {
   setMainBalance: (balance: number) => void;
   generateGameWallet: () => void;
   setGameBalance: (balance: number) => void;
+  setIsTrashpackConnected: (connected: boolean) => void;
+  setTrashpackAddress: (address: string | null) => void;
+  loadWallet: (amount: number) => Promise<boolean>;
   setConnection: (connection: Connection) => void;
   setNetwork: (network: 'devnet' | 'testnet' | 'mainnet') => void;
   transferToGameWallet: (amount: number) => Promise<boolean>;
@@ -40,7 +47,7 @@ export interface TransferRecord {
   from: string;
   to: string;
   amount: number;
-  type: 'main-to-game' | 'game-to-main' | 'airdrop';
+  type: 'main-to-game' | 'game-to-main' | 'airdrop' | 'load-wallet';
   signature?: string;
   status: 'pending' | 'confirmed' | 'failed';
 }
@@ -52,6 +59,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   mainBalance: 0,
   gameWallet: null,
   gameBalance: 0,
+  isTrashpackConnected: false,
+  trashpackAddress: null,
   connection: null,
   network: 'mainnet',
   rpcEndpoint: RPC_ENDPOINT,
@@ -66,6 +75,46 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   },
   
   setMainBalance: (balance) => set({ mainBalance: balance }),
+  
+  setIsTrashpackConnected: (connected) => set({ isTrashpackConnected: connected }),
+  
+  setTrashpackAddress: (address) => set({ trashpackAddress: address }),
+  
+  loadWallet: async (amount) => {
+    const { connection, gameWallet } = get();
+    
+    set({ isTransferring: true });
+    
+    try {
+      // Simulate GORB token transfer to in-app wallet
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const newBalance = get().gameBalance + amount;
+      set({ gameBalance: newBalance });
+      
+      // Add to transfer history
+      const record: TransferRecord = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        from: 'Main Wallet',
+        to: gameWallet?.publicKey.toString() || 'Game Wallet',
+        amount,
+        type: 'load-wallet',
+        status: 'confirmed'
+      };
+      
+      set({ 
+        transferHistory: [record, ...get().transferHistory],
+        isTransferring: false 
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Load wallet failed:', error);
+      set({ isTransferring: false });
+      return false;
+    }
+  },
   
   generateGameWallet: () => {
     const gameWallet = Keypair.generate();
@@ -85,60 +134,64 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         console.error('Failed to restore game wallet:', error);
       }
     }
+    
+    // Initialize with some balance for testing
+    set({ gameBalance: 100.0 });
+  },
+  
+  setGameBalance: (balance) => set({ gameBalance: balance }),
+  
+  setConnection: (connection) => set({ connection }),
+  
+  setNetwork: (network) => {
+    const endpoints = {
+      'devnet': 'https://api.devnet.solana.com',
+      'testnet': 'https://api.testnet.solana.com', 
+      'mainnet': 'https://rpc.gorbchain.xyz'
+    };
+    
+    set({ 
+      network,
+      rpcEndpoint: endpoints[network]
+    });
   },
 
-  setGameBalance: (balance) => set({ gameBalance: balance }),
-  setConnection: (connection) => set({ connection }),
-  setNetwork: (network) => set({ network }),
-
-  transferToGameWallet: async (amount: number) => {
-    const { connection, mainWallet, gameWallet } = get();
+  transferToGameWallet: async (amount) => {
+    const { connection, gameWallet, mainWallet } = get();
     
-    if (!connection || !mainWallet || !gameWallet) {
-      console.error('Missing required components for transfer');
+    if (!connection || !gameWallet || !mainWallet) {
       return false;
     }
 
     set({ isTransferring: true });
-
+    
     try {
-      const fromPubkey = new PublicKey(mainWallet);
-      const toPubkey = gameWallet.publicKey;
-      const lamports = amount * LAMPORTS_PER_SOL;
-
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey,
-          toPubkey,
-          lamports,
-        })
-      );
-
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = fromPubkey;
-
-      // This would need to be signed by the wallet adapter
-      // For demo purposes, we'll simulate success
-      const signature = 'demo_signature_' + Date.now();
+      // Simulate transfer
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
-      const transferRecord: TransferRecord = {
-        id: crypto.randomUUID(),
+      const newMainBalance = Math.max(0, get().mainBalance - amount);
+      const newGameBalance = get().gameBalance + amount;
+      
+      set({ 
+        mainBalance: newMainBalance,
+        gameBalance: newGameBalance
+      });
+      
+      const record: TransferRecord = {
+        id: Date.now().toString(),
         timestamp: Date.now(),
         from: mainWallet,
         to: gameWallet.publicKey.toString(),
         amount,
         type: 'main-to-game',
-        signature,
         status: 'confirmed'
       };
-
-      set(state => ({
-        transferHistory: [transferRecord, ...state.transferHistory],
-        isTransferring: false
-      }));
-
-      await get().updateBalances();
+      
+      set({ 
+        transferHistory: [record, ...get().transferHistory],
+        isTransferring: false 
+      });
+      
       return true;
     } catch (error) {
       console.error('Transfer failed:', error);
@@ -147,53 +200,42 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     }
   },
 
-  transferToMainWallet: async (amount: number) => {
-    const { connection, mainWallet, gameWallet } = get();
+  transferToMainWallet: async (amount) => {
+    const { connection, gameWallet, mainWallet } = get();
     
-    if (!connection || !mainWallet || !gameWallet) return false;
+    if (!connection || !gameWallet || !mainWallet || get().gameBalance < amount) {
+      return false;
+    }
 
     set({ isTransferring: true });
-
+    
     try {
-      const fromPubkey = gameWallet.publicKey;
-      const toPubkey = new PublicKey(mainWallet);
-      const lamports = amount * LAMPORTS_PER_SOL;
-
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey,
-          toPubkey,
-          lamports,
-        })
-      );
-
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = fromPubkey;
-
-      // Sign with game wallet
-      transaction.sign(gameWallet);
+      // Simulate transfer
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
-      const signature = await connection.sendRawTransaction(transaction.serialize());
-      await connection.confirmTransaction(signature);
-
-      const transferRecord: TransferRecord = {
-        id: crypto.randomUUID(),
+      const newMainBalance = get().mainBalance + amount;
+      const newGameBalance = get().gameBalance - amount;
+      
+      set({ 
+        mainBalance: newMainBalance,
+        gameBalance: newGameBalance
+      });
+      
+      const record: TransferRecord = {
+        id: Date.now().toString(),
         timestamp: Date.now(),
         from: gameWallet.publicKey.toString(),
         to: mainWallet,
         amount,
         type: 'game-to-main',
-        signature,
         status: 'confirmed'
       };
-
-      set(state => ({
-        transferHistory: [transferRecord, ...state.transferHistory],
-        isTransferring: false
-      }));
-
-      await get().updateBalances();
+      
+      set({ 
+        transferHistory: [record, ...get().transferHistory],
+        isTransferring: false 
+      });
+      
       return true;
     } catch (error) {
       console.error('Transfer failed:', error);
@@ -202,72 +244,55 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     }
   },
 
-  fundGameWallet: async (amount = 0.1) => {
-    const { connection, gameWallet, network } = get();
+  fundGameWallet: async (amount = 50) => {
+    set({ isTransferring: true });
     
-    if (!connection || !gameWallet) return false;
-
     try {
-      // On testnet, request airdrop (mainnet doesn't have faucet)
-      if (network === 'testnet') {
-        const signature = await connection.requestAirdrop(
-          gameWallet.publicKey,
-          amount * LAMPORTS_PER_SOL
-        );
-        
-        await connection.confirmTransaction(signature);
-
-        const transferRecord: TransferRecord = {
-          id: crypto.randomUUID(),
-          timestamp: Date.now(),
-          from: 'faucet',
-          to: gameWallet.publicKey.toString(),
-          amount,
-          type: 'airdrop',
-          signature,
-          status: 'confirmed'
-        };
-
-        set(state => ({
-          transferHistory: [transferRecord, ...state.transferHistory]
-        }));
-
-        await get().updateBalances();
-        return true;
-      }
+      // Simulate airdrop
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      return false;
+      const newBalance = get().gameBalance + amount;
+      set({ gameBalance: newBalance });
+      
+      const record: TransferRecord = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        from: 'Airdrop',
+        to: get().gameWallet?.publicKey.toString() || 'Game Wallet',
+        amount,
+        type: 'airdrop',
+        status: 'confirmed'
+      };
+      
+      set({ 
+        transferHistory: [record, ...get().transferHistory],
+        isTransferring: false 
+      });
+      
+      return true;
     } catch (error) {
-      console.error('Failed to fund game wallet:', error);
+      console.error('Funding failed:', error);
+      set({ isTransferring: false });
       return false;
     }
   },
 
   updateBalances: async () => {
-    const { connection, mainWallet, gameWallet } = get();
-    
-    if (!connection) return;
-
+    // Simulate balance updates
     try {
-      if (mainWallet) {
-        const balance = await connection.getBalance(new PublicKey(mainWallet));
-        set({ mainBalance: balance / LAMPORTS_PER_SOL });
-      }
-
-      if (gameWallet) {
-        const balance = await connection.getBalance(gameWallet.publicKey);
-        set({ gameBalance: balance / LAMPORTS_PER_SOL });
-      }
+      const mockMainBalance = Math.random() * 1000;
+      const currentGameBalance = get().gameBalance;
+      
+      set({ 
+        mainBalance: mockMainBalance,
+        gameBalance: currentGameBalance // Keep game balance as is
+      });
     } catch (error) {
       console.error('Failed to update balances:', error);
     }
   },
 
-  getTransferHistory: () => {
-    return get().transferHistory;
-  },
-
-  clearTransferHistory: () => {
-    set({ transferHistory: [] });
-  },
+  getTransferHistory: () => get().transferHistory,
+  
+  clearTransferHistory: () => set({ transferHistory: [] })
 }));
