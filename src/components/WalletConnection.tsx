@@ -4,6 +4,7 @@ import { Connection, Keypair } from '@solana/web3.js';
 import { Wallet, ExternalLink, Shield, Zap } from 'lucide-react';
 import { useWalletStore } from '../stores/walletStore';
 import { Logo } from './ui/Logo';
+import { SessionWalletModal } from './SessionWalletModal';
 
 interface WalletOption {
   id: string;
@@ -27,29 +28,61 @@ const secondaryWallets: WalletOption[] = [
   {
     id: 'phantom',
     name: 'Phantom',
-    icon: 'https://pbs.twimg.com/profile_images/1673646499095785472/RvZ-jFgF_400x400.png',
+    icon: '👻', // Use emoji instead of external URL
     description: 'Popular choice',
     url: 'https://phantom.app'
   },
   {
     id: 'solflare',
     name: 'Solflare',
-    icon: 'https://pbs.twimg.com/profile_images/1586270527327576066/uJ8Cqh60_400x400.jpg',
+    icon: '☀️', // Use emoji instead of external URL
     description: 'Feature-rich',
     url: 'https://solflare.com'
   },
   {
     id: 'backpack',
     name: 'Backpack',
-    icon: 'https://pbs.twimg.com/profile_images/1610743223433465856/YX7sWJwS_400x400.jpg',
+    icon: '🎒', // Use emoji instead of external URL
     description: 'Modern wallet',
     url: 'https://backpack.app'
   }
 ];
 
+// Session management constants
+const SESSION_KEY = 'gorb-session';
+const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Helper to get session from localStorage
+function getSession() {
+  const raw = localStorage.getItem(SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const session = JSON.parse(raw);
+    if (!session.signature || !session.publicKey || !session.timestamp) return null;
+    // Check expiration
+    if (Date.now() - session.timestamp > SESSION_DURATION_MS) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+// Helper to set session
+function setSession(session: { publicKey: string; signature: number[]; timestamp: number }) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+// Helper to clear session
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
 // Remove prop type for onTrashpackLogin since we're going direct to dashboard
 export function WalletConnection() {
-  const { connected, publicKey, connect, wallets, select } = useWallet();
+  const { connected, publicKey, connect, wallets, select, signMessage } = useWallet();
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [trashpackError, setTrashpackError] = useState<string | null>(null);
@@ -58,23 +91,21 @@ export function WalletConnection() {
     gameWallet,
     generateGameWallet,
     setConnection,
-    setMainWallet
+    setMainWallet,
+    setIsTrashpackConnected,
+    showSessionWalletModal,
+    setShowSessionWalletModal,
+    createSessionWallet
   } = useWalletStore();
+  const [session, setSessionState] = useState(() => getSession());
+  const [isSigning, setIsSigning] = useState(false);
+  const [isCreatingSessionWallet, setIsCreatingSessionWallet] = useState(false);
 
   // Initialize connection
   useEffect(() => {
-    const connection = new Connection('https://rpc.gorbchain.xyz', 'confirmed');
+    const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
     setConnection(connection);
   }, [setConnection]);
-
-  // Update main wallet when connected
-  useEffect(() => {
-    if (connected && publicKey) {
-      setMainWallet(publicKey.toString());
-    } else {
-      setMainWallet(null);
-    }
-  }, [connected, publicKey, setMainWallet]);
 
   // Generate game wallet on first visit
   useEffect(() => {
@@ -95,9 +126,56 @@ export function WalletConnection() {
     }
   }, [gameWallet, generateGameWallet]);
 
+  // After wallet connection, check session or prompt for signature
+  useEffect(() => {
+    if (connected && publicKey && signMessage) {
+      const session = getSession();
+      if (!session || session.publicKey !== publicKey.toString()) {
+        // Prompt for signature
+        (async () => {
+          setIsSigning(true);
+          try {
+            const message = `Sign to log in to Gorb Social.\nSession valid for 24 hours.\nWallet: ${publicKey.toString()}`;
+            const encodedMessage = new TextEncoder().encode(message);
+            
+            const signature = await signMessage(encodedMessage);
+            // Store session
+            const sessionObj = {
+              publicKey: publicKey.toString(),
+              signature: Array.from(signature),
+              timestamp: Date.now(),
+            };
+            setSession(sessionObj);
+            setSessionState(sessionObj);
+            
+            // Show session wallet modal to create in-app wallet
+            setShowSessionWalletModal(true);
+          } catch (e) {
+            console.error('Signature failed:', e);
+            clearSession();
+            setSessionState(null);
+          } finally {
+            setIsSigning(false);
+          }
+        })();
+      } else {
+        setSessionState(session);
+      }
+    } else {
+      clearSession();
+      setSessionState(null);
+    }
+  }, [connected, publicKey, signMessage]);
+
 
   // TrashPack login logic
   const loginWithTrashpack = async () => {
+    // Prevent multiple simultaneous login attempts
+    if (isConnecting) {
+      console.log('🔄 Login already in progress, skipping...');
+      return;
+    }
+    
     console.log('🚀 Starting TrashPack login...');
     setIsConnecting(true);
     setTrashpackError(null);
@@ -126,19 +204,27 @@ export function WalletConnection() {
       const result = await trashpack.connect();
       console.log('✅ Connection result:', result);
       
-      const address = result?.publicKey?.toString?.() || result?.publicKey;
-      console.log('📍 Address extracted:', address);
+      let address = result?.publicKey;
+      if (address && typeof address !== 'string') {
+        address = address.toString();
+      }
+      console.log('📍 Address extracted:', address, 'Type:', typeof address);
       
-      if (!address) {
-        throw new Error('No address returned from wallet connection');
+      if (!address || typeof address !== 'string' || address.length < 32) {
+        throw new Error('No valid address returned from wallet connection');
       }
       
       // Set the main wallet in the store - this will trigger the dashboard
       setMainWallet(address);
       setTrashpackAddress(address);
+      setIsTrashpackConnected(true); // Ensure state is updated
       setSelectedWallet(null);
       
+      // Dispatch a custom event to notify the app
+      window.dispatchEvent(new Event('trashpack-connect'));
+      
       console.log('✅ TrashPack login successful! Dashboard should now load...');
+      console.log('📊 Final wallet state - mainWallet set to:', address);
       
     } catch (e: any) {
       console.error('❌ TrashPack login failed:', e);
@@ -179,6 +265,37 @@ export function WalletConnection() {
       setSelectedWallet(null);
     }
   };
+
+  // Handle session wallet creation
+  const handleCreateSessionWallet = async (pin: string) => {
+    if (!session || !publicKey) {
+      throw new Error('No active session or wallet');
+    }
+
+    setIsCreatingSessionWallet(true);
+    try {
+      const signatureUint8Array = new Uint8Array(session.signature);
+      await createSessionWallet(signatureUint8Array, publicKey.toString(), pin);
+      console.log('✅ Session wallet created successfully');
+    } catch (error) {
+      console.error('❌ Failed to create session wallet:', error);
+      throw error;
+    } finally {
+      setIsCreatingSessionWallet(false);
+    }
+  };
+
+  // Optionally, show a loading spinner or message while signing
+  if (isSigning) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-white">
+        <div className="w-full max-w-lg mx-auto text-center">
+          <Logo size="large" showAnimation={true} />
+          <div className="mt-8 text-lg">Please sign the login message in your wallet to continue...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 text-white">
@@ -275,16 +392,16 @@ export function WalletConnection() {
               >
                 <div className="text-center">
                   {/* Wallet Icon */}
-                  <div className="w-10 h-10 rounded-lg bg-gray-700/50 flex items-center justify-center overflow-hidden mx-auto mb-2">
-                    <img 
-                      src={wallet.icon} 
-                      alt={wallet.name}
-                      className="w-8 h-8 object-cover rounded-lg"
-                      onError={(e) => {
-                        const target = e.currentTarget as HTMLImageElement;
-                        target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzM3NEE1QyIvPgo8cGF0aCBkPSJNMTYgOEMxMiA4IDggMTIgOCAxNkM4IDIwIDEyIDI0IDE2IDI0QzIwIDI0IDI0IDIwIDI0IDE2QzI0IDEyIDIwIDggMTYgOFoiIGZpbGw9IiM2Qjc4OEUiLz4KPC9zdmc+';
-                      }}
-                    />
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center border border-gray-600 mx-auto mb-2">
+                    {wallet.isOfficialWallet && wallet.icon.startsWith('/') ? (
+                      <img 
+                        src={wallet.icon} 
+                        alt={wallet.name}
+                        className="w-8 h-8 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <span className="text-2xl">{wallet.icon}</span>
+                    )}
                   </div>
                   
                   <h4 className="text-white font-medium text-xs mb-1">{wallet.name}</h4>
@@ -338,6 +455,15 @@ export function WalletConnection() {
           </p>
         </div>
       </div>
+
+      {/* Session Wallet Modal */}
+      <SessionWalletModal
+        isOpen={showSessionWalletModal}
+        onClose={() => setShowSessionWalletModal(false)}
+        onCreateWallet={handleCreateSessionWallet}
+        userAddress={publicKey?.toString() || ''}
+        isCreating={isCreatingSessionWallet}
+      />
     </div>
   );
 }

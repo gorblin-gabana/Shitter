@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Home, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { ChatPanel } from './ChatPanel';
 
 interface LeftSidebarProps {
   currentPage?: 'feed' | 'profile' | 'avatar-creator';
@@ -17,6 +18,7 @@ export function LeftSidebar({
   onTribeChange 
 }: LeftSidebarProps) {
   const [expandedSuperTribes, setExpandedSuperTribes] = useState<string[]>(['community-hub']);
+  const [showChat, setShowChat] = useState(false);
 
   const superTribes = [
     {
@@ -102,7 +104,10 @@ export function LeftSidebar({
             <span className="font-medium">Feed</span>
           </button>
           
-          <button className="w-full flex items-center gap-3 p-3 text-gray-400 hover:bg-gray-800/50 hover:text-white rounded-lg transition-colors">
+          <button 
+            className="w-full flex items-center gap-3 p-3 text-gray-400 hover:bg-gray-800/50 hover:text-white rounded-lg transition-colors"
+            onClick={() => setShowChat(true)}
+          >
             <MessageCircle className="w-5 h-5" />
             <span className="font-medium">Messages</span>
           </button>
@@ -187,6 +192,21 @@ export function LeftSidebar({
           )}
         </div>
       </div>
+      {/* ChatPanel Modal */}
+      {showChat && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="relative">
+            <button
+              onClick={() => setShowChat(false)}
+              className="absolute top-2 right-2 text-gray-400 hover:text-white bg-gray-800 rounded-full p-2 z-10"
+              title="Close"
+            >
+              ×
+            </button>
+            <ChatPanel />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

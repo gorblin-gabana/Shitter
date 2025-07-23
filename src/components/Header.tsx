@@ -1,54 +1,107 @@
-import React from 'react';
-import { useCanvasStore } from '../stores/canvasStore';
+import React, { useState } from 'react';
+import { Search, Bell, Settings, User } from 'lucide-react';
+import { Logo } from './ui/Logo';
 
 interface HeaderProps {
-  onNavigateToAvatarCreator?: () => void;
-  onNavigateToFeed?: () => void;
+  onSearch?: (query: string) => void;
+  onOpenNotifications?: () => void;
+  onOpenSettings?: () => void;
+  onOpenProfile?: () => void;
+  onLogoClick?: () => void;
 }
 
-export function Header({ onNavigateToAvatarCreator, onNavigateToFeed }: HeaderProps = {}) {
-  const { pixels } = useCanvasStore();
+export function Header({ onSearch, onOpenNotifications, onOpenSettings, onOpenProfile, onLogoClick }: HeaderProps) {
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const handlePointsClick = () => {
-    window.open('https://points.gorbchain.xyz', '_blank');
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onSearch && searchQuery.trim()) {
+      onSearch(searchQuery.trim());
+    }
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchQuery(value);
+    // Live search - trigger search on every keystroke
+    if (onSearch) {
+      onSearch(value);
+    }
   };
 
   return (
-    <header className="bg-black/90 backdrop-blur-md border-b border-gray-800 p-4 h-20 flex-shrink-0">
-      <div className="flex items-center justify-between h-full max-w-7xl mx-auto px-4">
+    <header className="bg-gray-900/95 backdrop-blur-md border-b border-gray-800/50 px-6 py-4 sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Logo and Brand */}
         <div className="flex items-center gap-4">
           <button 
-            onClick={onNavigateToFeed}
-            className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+            onClick={onLogoClick}
+            className="hover:opacity-80 transition-opacity cursor-pointer"
           >
-            <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-emerald-500 rounded-xl flex items-center justify-center shadow-lg">
-              <img src="/logo.png" alt="Shitter" className="w-8 h-8 object-contain" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">Shitter</h1>
-              <p className="text-xs text-gray-400">Express Freely</p>
-            </div>
+            <Logo />
           </button>
+          <div className="hidden md:block">
+            <p className="text-sm text-gray-400">Express Freely</p>
+          </div>
         </div>
 
-        {/* Stats and Network */}
-        <div className="flex items-center gap-6">
-          <button 
-            onClick={handlePointsClick}
-            className="bg-gray-800/50 hover:bg-gray-700/50 border border-gray-700 hover:border-gray-600 rounded-lg px-3 py-2 transition-colors cursor-pointer"
+        {/* Global Search Bar */}
+        <div className="flex-1 max-w-2xl mx-8">
+          <form onSubmit={handleSearchSubmit} className="relative">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={handleSearchChange}
+                placeholder="Search posts, users, hashtags..."
+                className="w-full bg-gray-800/50 hover:bg-gray-800/70 focus:bg-gray-800 text-white placeholder-gray-400 pl-12 pr-4 py-3 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 border border-gray-700/50 focus:border-blue-500/50"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    if (onSearch) onSearch('');
+                  }}
+                  className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+
+        {/* Action Buttons and Wallet */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onOpenNotifications}
+            className="p-2 rounded-full bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-white transition-all duration-200 relative"
+            title="Notifications"
           >
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-gray-400">Points:</span>
-              <span className="text-green-400 font-mono font-medium">{pixels.size}</span>
-            </div>
+            <Bell className="w-5 h-5" />
+            {/* Notification badge */}
+            <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></div>
           </button>
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg px-3 py-2">
-            <div className="flex items-center gap-2 text-sm">
-              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-              <span className="text-green-400 font-medium">Gorbchain</span>
-            </div>
-          </div>
+          
+          <button
+            onClick={onOpenSettings}
+            className="p-2 rounded-full bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-white transition-all duration-200"
+            title="Settings"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+          
+          <button
+            onClick={onOpenProfile}
+            className="p-2 rounded-full bg-gray-800/50 hover:bg-gray-700/50 text-gray-400 hover:text-white transition-all duration-200"
+            title="Profile"
+          >
+            <User className="w-5 h-5" />
+          </button>
+          
+          {/* Wallet info/disconnect button will be added here later */}
         </div>
       </div>
     </header>

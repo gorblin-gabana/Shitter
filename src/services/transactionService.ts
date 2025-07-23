@@ -1,7 +1,49 @@
 import { useCallback } from 'react';
-import { Transaction, SystemProgram, PublicKey } from '@solana/web3.js';
+import { Transaction, SystemProgram, PublicKey, Connection, TransactionInstruction } from '@solana/web3.js';
 import { useWalletStore } from '../stores/walletStore';
 import { useTransactionStore } from '../stores/transactionStore';
+
+// Memo program address
+const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+
+/**
+ * Send a transaction with a memo (for posting on-chain social content)
+ * @param connection Solana connection
+ * @param payer PublicKey of the fee payer
+ * @param signTransaction Function to sign the transaction
+ * @param memo The memo string (post content, or JSON with IPFS hash)
+ * @returns transaction signature
+ */
+export async function sendMemoTransaction({
+  connection,
+  payer,
+  signTransaction,
+  memo
+}: {
+  connection: Connection,
+  payer: PublicKey,
+  signTransaction: (tx: Transaction) => Promise<Transaction>,
+  memo: string
+}): Promise<string> {
+  // Create memo instruction
+  const memoIx = new TransactionInstruction({
+    keys: [],
+    programId: MEMO_PROGRAM_ID,
+    data: Buffer.from(memo, 'utf8'),
+  });
+  // Create transaction
+  const tx = new Transaction().add(memoIx);
+  tx.feePayer = payer;
+  const { blockhash } = await connection.getLatestBlockhash();
+  tx.recentBlockhash = blockhash;
+  // Sign
+  const signed = await signTransaction(tx);
+  // Send
+  const sig = await connection.sendRawTransaction(signed.serialize());
+  // Optionally, confirm
+  await connection.confirmTransaction(sig, 'confirmed');
+  return sig;
+}
 
 export function useTransactionService() {
   const { connection, tempWallet } = useWalletStore();

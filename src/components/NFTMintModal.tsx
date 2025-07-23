@@ -4,6 +4,9 @@ import { useCanvasStore } from '../stores/canvasStore';
 import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import { toast } from 'sonner';
+import lighthouse from '@lighthouse-web3/sdk';
+// @ts-ignore
+import apiKey from '../Apikey.txt';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -18,6 +21,7 @@ export function NFTMintModal({ isOpen, onClose }: ExportModalProps) {
     name: 'My Gorbagana Avatar',
     description: 'Created with Gorbchain Avatar Creator'
   });
+  const [ipfsUrl, setIpfsUrl] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const { 
@@ -169,20 +173,50 @@ export function NFTMintModal({ isOpen, onClose }: ExportModalProps) {
 
   const handleMint = async () => {
     setIsMinting(true);
-    
+    setIpfsUrl(null);
     try {
-      // Simulate minting process
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
+      // Create high-res version for upload (4x scale)
+      if (!canvasRef.current) throw new Error('No canvas to mint');
+      const scale = 4;
+      const uploadCanvas = document.createElement('canvas');
+      uploadCanvas.width = canvasSize * scale;
+      uploadCanvas.height = canvasSize * scale;
+      const ctx = uploadCanvas.getContext('2d');
+      if (!ctx) throw new Error('Could not get canvas context');
+      ctx.imageSmoothingEnabled = false;
+      ctx.scale(scale, scale);
+      ctx.drawImage(canvasRef.current, 0, 0);
+      // Convert to blob
+      const blob: Blob = await new Promise((resolve, reject) => {
+        uploadCanvas.toBlob((b) => b ? resolve(b) : reject(new Error('Failed to create blob')), 'image/png');
+      });
+      // Convert blob to File
+      const file = new File([blob], `${nftData.name.replace(/[^a-zA-Z0-9]/g, '_')}_avatar.png`, { type: 'image/png' });
+      // Upload to Lighthouse
+      // @ts-ignore
+      const buffer = await file.arrayBuffer();
+      // @ts-ignore
+      const response = await lighthouse.uploadBuffer(Buffer.from(buffer), apiKey);
+      if (!response || !response.data || !response.data.Hash) {
+        throw new Error('Failed to upload to Lighthouse');
+      }
+      const LIGHTHOUSE_GATEWAY = 'https://gateway.lighthouse.storage/ipfs/';
+      const url = LIGHTHOUSE_GATEWAY + response.data.Hash;
+      setIpfsUrl(url);
+      // Save profile metadata to localStorage
+      const profileMetadata = {
+        username: nftData.name,
+        description: nftData.description,
+        image: url
+      };
+      localStorage.setItem('shitter.profile', JSON.stringify(profileMetadata));
       setMintComplete(true);
-      toast.success('NFT minted successfully!');
-      
+      toast.success('NFT image uploaded to IPFS!');
       setTimeout(() => {
         onClose();
         setMintComplete(false);
         setIsMinting(false);
-      }, 2000);
-      
+      }, 4000);
     } catch (error) {
       console.error('Minting failed:', error);
       toast.error('Minting failed. Please try again.');
@@ -246,7 +280,7 @@ export function NFTMintModal({ isOpen, onClose }: ExportModalProps) {
                   className="flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
                 >
                   <Upload className="w-4 h-4" />
-                  {isMinting ? 'Minting...' : 'Mint NFT'}
+                  {isMinting ? 'Uploading...' : 'Upload to IPFS'}
                 </Button>
               </div>
 
@@ -296,8 +330,18 @@ export function NFTMintModal({ isOpen, onClose }: ExportModalProps) {
               <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-white mb-2">Mint Successful!</h3>
               <p className="text-gray-400 mb-4">
-                Your avatar has been minted as an NFT on Gorbchain.
+                Your avatar has been uploaded to IPFS as an NFT image.
               </p>
+              {ipfsUrl && (
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-left break-all">
+                  <div className="text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">IPFS URL:</span>
+                      <a href={ipfsUrl} target="_blank" rel="noopener noreferrer" className="text-green-400 underline">{ipfsUrl}</a>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-left">
                 <div className="text-xs space-y-1">
                   <div className="flex justify-between">

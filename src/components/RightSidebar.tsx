@@ -4,6 +4,7 @@ import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { Wallet, TrendingUp, Users, Hash, Plus, Coins, Zap, LogOut, Download } from 'lucide-react';
 import { useWalletStore } from '../stores/walletStore';
 import { Card, CardContent } from './ui/Card';
+import { GoodShitsBalance } from './GoodShitsBalance';
 
 interface RightSidebarProps {
   connected: boolean;
@@ -227,6 +228,9 @@ export function RightSidebar({ connected, onNavigateToAvatarCreator }: RightSide
               )}
             </CardContent>
           </Card>
+
+          {/* GoodShits Balance / Session Wallet */}
+          <GoodShitsBalance />
 
           {/* Trending - Enhanced */}
           <Card className="bg-gray-800/20 border-gray-700/30">

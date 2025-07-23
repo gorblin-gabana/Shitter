@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } from '@solana/web3.js';
+import { sessionWalletService } from '../services/sessionWalletService';
 
 export interface WalletState {
   // Main wallet (connected via adapter)
@@ -13,6 +14,12 @@ export interface WalletState {
   // TrashPack wallet connection state
   isTrashpackConnected: boolean;
   trashpackAddress: string | null;
+  
+  // Session wallet state
+  sessionWallet: string | null;
+  sessionWalletActive: boolean;
+  goodShitsBalance: number;
+  showSessionWalletModal: boolean;
   
   // Connection
   connection: Connection | null;
@@ -39,6 +46,18 @@ export interface WalletState {
   updateBalances: () => Promise<void>;
   getTransferHistory: () => TransferRecord[];
   clearTransferHistory: () => void;
+  restoreWalletState: () => void;
+  disconnectWallet: () => void;
+  
+  // Session wallet actions
+  setSessionWallet: (address: string | null) => void;
+  setSessionWalletActive: (active: boolean) => void;
+  setGoodShitsBalance: (balance: number) => void;
+  setShowSessionWalletModal: (show: boolean) => void;
+  createSessionWallet: (signature: Uint8Array, userAddress: string, pin: string) => Promise<void>;
+  spendGoodShits: (amount: number, action: string) => boolean;
+  addGoodShits: (amount: number, source: string) => void;
+  checkSessionWalletStatus: () => void;
 }
 
 export interface TransferRecord {
@@ -52,7 +71,7 @@ export interface TransferRecord {
   status: 'pending' | 'confirmed' | 'failed';
 }
 
-const RPC_ENDPOINT = 'https://rpc.gorbchain.xyz';
+const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 
 export const useWalletStore = create<WalletState>((set, get) => ({
   mainWallet: null,
@@ -61,6 +80,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   gameBalance: 0,
   isTrashpackConnected: false,
   trashpackAddress: null,
+  sessionWallet: null,
+  sessionWalletActive: false,
+  goodShitsBalance: 0,
+  showSessionWalletModal: false,
   connection: null,
   network: 'mainnet',
   rpcEndpoint: RPC_ENDPOINT,
@@ -68,7 +91,21 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   transferHistory: [],
 
   setMainWallet: (address) => {
+    console.log('🏦 setMainWallet called with:', address);
+    console.log('🏦 Previous mainWallet was:', get().mainWallet);
+    console.log('🔍 Called from:', new Error().stack?.split('\n')[2]?.trim());
     set({ mainWallet: address });
+    console.log('🏦 New mainWallet is:', get().mainWallet);
+    
+    // Persist main wallet state to localStorage
+    if (address) {
+      localStorage.setItem('main-wallet', address);
+      localStorage.setItem('wallet-connected', 'true');
+    } else {
+      localStorage.removeItem('main-wallet');
+      localStorage.removeItem('wallet-connected');
+    }
+    
     if (address && !get().gameWallet) {
       get().generateGameWallet();
     }
@@ -147,7 +184,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     const endpoints = {
       'devnet': 'https://api.devnet.solana.com',
       'testnet': 'https://api.testnet.solana.com', 
-      'mainnet': 'https://rpc.gorbchain.xyz'
+      'mainnet': 'https://api.mainnet-beta.solana.com'
     };
     
     set({ 
@@ -294,5 +331,103 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
   getTransferHistory: () => get().transferHistory,
   
-  clearTransferHistory: () => set({ transferHistory: [] })
+  clearTransferHistory: () => set({ transferHistory: [] }),
+
+  restoreWalletState: () => {
+    try {
+      const mainWallet = localStorage.getItem('main-wallet');
+      const isConnected = localStorage.getItem('wallet-connected') === 'true';
+      
+      if (isConnected && mainWallet) {
+        console.log('🔄 Restoring wallet state:', mainWallet);
+        set({ 
+          mainWallet: mainWallet,
+          isTrashpackConnected: true,
+          trashpackAddress: mainWallet 
+        });
+      }
+    } catch (error) {
+      console.error('Failed to restore wallet state:', error);
+    }
+  },
+
+  disconnectWallet: () => {
+    console.log('👋 Disconnecting wallet and clearing state');
+    set({ 
+      mainWallet: null,
+      isTrashpackConnected: false,
+      trashpackAddress: null,
+      sessionWallet: null,
+      sessionWalletActive: false,
+      goodShitsBalance: 0
+    });
+    localStorage.removeItem('main-wallet');
+    localStorage.removeItem('wallet-connected');
+    sessionWalletService.clearSession();
+  },
+
+  // Session wallet methods
+  setSessionWallet: (address) => set({ sessionWallet: address }),
+  
+  setSessionWalletActive: (active) => set({ sessionWalletActive: active }),
+  
+  setGoodShitsBalance: (balance) => set({ goodShitsBalance: balance }),
+  
+  setShowSessionWalletModal: (show) => set({ showSessionWalletModal: show }),
+
+  createSessionWallet: async (signature, userAddress, pin) => {
+    try {
+      console.log('🚀 Creating session wallet...');
+      const wallet = await sessionWalletService.createSessionWallet(signature, userAddress, pin);
+      
+      set({
+        sessionWallet: wallet.address,
+        sessionWalletActive: true,
+        goodShitsBalance: sessionWalletService.getGoodShitsBalance()
+      });
+      
+      console.log('✅ Session wallet created and stored');
+    } catch (error) {
+      console.error('❌ Failed to create session wallet:', error);
+      throw error;
+    }
+  },
+
+  spendGoodShits: (amount, action) => {
+    try {
+      const success = sessionWalletService.spendGoodShits(amount, action);
+      if (success) {
+        set({ goodShitsBalance: sessionWalletService.getGoodShitsBalance() });
+      }
+      return success;
+    } catch (error) {
+      console.error('Failed to spend GoodShits:', error);
+      return false;
+    }
+  },
+
+  addGoodShits: (amount, source) => {
+    try {
+      sessionWalletService.addGoodShits(amount, source);
+      set({ goodShitsBalance: sessionWalletService.getGoodShitsBalance() });
+    } catch (error) {
+      console.error('Failed to add GoodShits:', error);
+    }
+  },
+
+  checkSessionWalletStatus: () => {
+    const isActive = sessionWalletService.isSessionActive();
+    const wallet = sessionWalletService.getSessionWallet();
+    const balance = sessionWalletService.getGoodShitsBalance();
+    
+    set({
+      sessionWallet: wallet?.address || null,
+      sessionWalletActive: isActive,
+      goodShitsBalance: balance
+    });
+    
+    if (!isActive && get().sessionWallet) {
+      console.log('⏰ Session wallet expired, cleared from store');
+    }
+  }
 }));
