@@ -1,7 +1,7 @@
 import React from 'react';
-import { Zap, Timer, Plus, Minus } from 'lucide-react';
+import { Zap, Timer, Plus, Minus, Info } from 'lucide-react';
 import { useWalletStore } from '../stores/walletStore';
-import { sessionWalletService } from '../services/sessionWalletService';
+import { sessionWalletService, SessionWalletService } from '../services/sessionWalletService';
 
 export function GoodShitsBalance() {
   const { 
@@ -12,6 +12,9 @@ export function GoodShitsBalance() {
   } = useWalletStore();
 
   const timeRemaining = sessionWalletService.getTimeRemaining();
+  const formattedBalance = sessionWalletService.getFormattedBalance();
+  const gorbBalance = sessionWalletService.getGorbBalance();
+  const actionCosts = sessionWalletService.getActionCosts();
 
   if (!sessionWalletActive) {
     return (
@@ -49,8 +52,8 @@ export function GoodShitsBalance() {
           </div>
         </div>
         <div className="text-right">
-          <div className="text-yellow-400 font-bold text-lg">{goodShitsBalance}</div>
-          <div className="text-gray-500 text-xs">tokens</div>
+          <div className="text-yellow-400 font-bold text-lg">{formattedBalance}</div>
+          <div className="text-gray-500 text-xs">{goodShitsBalance} GoodShits</div>
         </div>
       </div>
 
@@ -73,9 +76,17 @@ export function GoodShitsBalance() {
         </div>
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions with Fees */}
       <div className="space-y-2">
-        <div className="text-xs text-gray-400 mb-2">Quick Actions</div>
+        <div className="flex items-center gap-2 mb-2">
+          <div className="text-xs text-gray-400">Action Costs</div>
+          <div className="group relative">
+            <Info className="w-3 h-3 text-gray-500 hover:text-gray-300 cursor-help" />
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+              Includes 20% network fee
+            </div>
+          </div>
+        </div>
         
         <div className="grid grid-cols-2 gap-2">
           <div className="bg-gray-900/30 rounded-lg p-2 text-center">
@@ -83,7 +94,8 @@ export function GoodShitsBalance() {
               <Plus className="w-3 h-3 inline mr-1" />
               Like
             </div>
-            <div className="text-gray-500 text-xs">1 GS</div>
+            <div className="text-gray-500 text-xs">{actionCosts.like.total} GS</div>
+            <div className="text-gray-600 text-xs">({actionCosts.like.base}+{actionCosts.like.fee} fee)</div>
           </div>
           
           <div className="bg-gray-900/30 rounded-lg p-2 text-center">
@@ -91,7 +103,8 @@ export function GoodShitsBalance() {
               <Zap className="w-3 h-3 inline mr-1" />
               Share
             </div>
-            <div className="text-gray-500 text-xs">2 GS</div>
+            <div className="text-gray-500 text-xs">{actionCosts.share.total} GS</div>
+            <div className="text-gray-600 text-xs">({actionCosts.share.base}+{actionCosts.share.fee} fee)</div>
           </div>
         </div>
         
@@ -99,34 +112,50 @@ export function GoodShitsBalance() {
           <div className="bg-gray-900/30 rounded-lg p-2 text-center">
             <div className="text-purple-400 text-xs mb-1">
               <Plus className="w-3 h-3 inline mr-1" />
-              Comment
+              Good Shit
             </div>
-            <div className="text-gray-500 text-xs">3 GS</div>
+            <div className="text-gray-500 text-xs">{actionCosts.goodShit.total} GS</div>
+            <div className="text-gray-600 text-xs">({actionCosts.goodShit.base}+{actionCosts.goodShit.fee} fee)</div>
           </div>
           
           <div className="bg-gray-900/30 rounded-lg p-2 text-center">
             <div className="text-red-400 text-xs mb-1">
               <Minus className="w-3 h-3 inline mr-1" />
-              Dislike
+              Bad Shit
             </div>
-            <div className="text-gray-500 text-xs">1 GS</div>
+            <div className="text-gray-500 text-xs">{actionCosts.badShit.total} GS</div>
+            <div className="text-gray-600 text-xs">({actionCosts.badShit.base}+{actionCosts.badShit.fee} fee)</div>
           </div>
         </div>
       </div>
 
       {/* Low Balance Warning */}
-      {goodShitsBalance < 10 && (
+      {goodShitsBalance < actionCosts.share.total && (
         <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-2">
           <div className="text-orange-400 text-xs font-medium mb-1">Low Balance</div>
           <div className="text-orange-300 text-xs">
-            You're running low on GoodShits. Earn more by receiving likes and engagement!
+            You need at least {actionCosts.like.total} GS for basic interactions. Earn more by receiving engagement!
           </div>
         </div>
       )}
 
-      {/* Auto-refill Info */}
-      <div className="text-xs text-gray-500 text-center">
-        Balance auto-refills when you receive engagement
+      {/* Tokenomics Info */}
+      <div className="bg-gray-900/30 rounded-lg p-2 space-y-1">
+        <div className="text-xs text-gray-400 text-center font-medium">Gorbchain Economics</div>
+        <div className="text-xs text-gray-500 space-y-1">
+          <div className="flex justify-between">
+            <span>1 GORB =</span>
+            <span>10,000 GS</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Network Fee:</span>
+            <span>20%</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Your Balance:</span>
+            <span>{gorbBalance.toFixed(6)} GORB</span>
+          </div>
+        </div>
       </div>
     </div>
   );

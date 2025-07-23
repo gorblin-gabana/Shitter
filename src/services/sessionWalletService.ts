@@ -10,9 +10,15 @@ interface SessionWalletData {
 
 interface SessionWalletState {
   wallet: SessionWalletData | null;
-  goodShitsBalance: number;
+  goodShitsBalance: number; // In GoodShits (1 GORB = 10,000 GoodShits)
   isActive: boolean;
 }
+
+// Token economics constants
+const GORB_TO_GOODSHITS = 10000; // 1 GORB = 10,000 GoodShits
+const TX_FEE_RATE = 0.2; // 20% transaction fee
+const INITIAL_BALANCE_GORB = 0.01; // 0.01 GORB = 100 GoodShits
+const MIN_BALANCE_FOR_TX = 2; // Minimum 2 GoodShits to cover fees
 
 // Session duration: 2 hours
 const SESSION_DURATION_MS = 2 * 60 * 60 * 1000;
@@ -22,7 +28,7 @@ export class SessionWalletService {
   private static instance: SessionWalletService;
   private state: SessionWalletState = {
     wallet: null,
-    goodShitsBalance: 100, // Start with 100 GoodShits tokens
+    goodShitsBalance: INITIAL_BALANCE_GORB * GORB_TO_GOODSHITS, // 100 GoodShits
     isActive: false
   };
 
@@ -80,7 +86,7 @@ export class SessionWalletService {
       // Update state
       this.state = {
         wallet: sessionWallet,
-        goodShitsBalance: 100, // Reset to 100 GoodShits tokens
+        goodShitsBalance: INITIAL_BALANCE_GORB * GORB_TO_GOODSHITS, // 100 GoodShits
         isActive: true
       };
 
@@ -122,6 +128,38 @@ export class SessionWalletService {
   }
 
   /**
+   * Get balance in GORB tokens
+   */
+  getGorbBalance(): number {
+    return this.state.goodShitsBalance / GORB_TO_GOODSHITS;
+  }
+
+  /**
+   * Format balance for display (with decimals)
+   */
+  getFormattedBalance(): string {
+    const gorbBalance = this.getGorbBalance();
+    if (gorbBalance < 0.0001) {
+      return `${this.state.goodShitsBalance} GS`;
+    }
+    return `${gorbBalance.toFixed(4)} GORB`;
+  }
+
+  /**
+   * Calculate transaction fee for an amount
+   */
+  calculateTxFee(amount: number): number {
+    return Math.ceil(amount * TX_FEE_RATE);
+  }
+
+  /**
+   * Get total cost including fees
+   */
+  getTotalCost(amount: number): number {
+    return amount + this.calculateTxFee(amount);
+  }
+
+  /**
    * Update GoodShits balance (for transactions)
    */
   updateGoodShitsBalance(newBalance: number): void {
@@ -136,23 +174,26 @@ export class SessionWalletService {
   }
 
   /**
-   * Spend GoodShits tokens for social interactions
+   * Spend GoodShits tokens for social interactions (includes tx fees)
    */
-  spendGoodShits(amount: number, action: string): boolean {
+  spendGoodShits(amount: number, action: string): { success: boolean; fee: number; total: number } {
     if (!this.state.isActive || !this.state.wallet) {
       throw new Error('No active session wallet');
     }
 
-    if (this.state.goodShitsBalance < amount) {
-      console.log(`❌ Insufficient GoodShits balance for ${action}`);
-      return false;
+    const fee = this.calculateTxFee(amount);
+    const totalCost = amount + fee;
+
+    if (this.state.goodShitsBalance < totalCost) {
+      console.log(`❌ Insufficient GoodShits balance for ${action}. Need: ${totalCost}, Have: ${this.state.goodShitsBalance}`);
+      return { success: false, fee, total: totalCost };
     }
 
-    this.state.goodShitsBalance -= amount;
+    this.state.goodShitsBalance -= totalCost;
     this.persistSessionState();
     
-    console.log(`💸 Spent ${amount} GoodShits for ${action}. Remaining: ${this.state.goodShitsBalance}`);
-    return true;
+    console.log(`💸 ${action}: ${amount} GS + ${fee} GS fee = ${totalCost} GS total. Balance: ${this.state.goodShitsBalance} GS`);
+    return { success: true, fee, total: totalCost };
   }
 
   /**
@@ -223,6 +264,42 @@ export class SessionWalletService {
       console.error('❌ Failed to extend session:', error);
       return false;
     }
+  }
+
+  /**
+   * Get action costs with fees
+   */
+  getActionCosts() {
+    return {
+      like: { base: 1, fee: this.calculateTxFee(1), total: this.getTotalCost(1) },
+      share: { base: 2, fee: this.calculateTxFee(2), total: this.getTotalCost(2) },
+      goodShit: { base: 2, fee: this.calculateTxFee(2), total: this.getTotalCost(2) },
+      badShit: { base: 1, fee: this.calculateTxFee(1), total: this.getTotalCost(1) },
+      comment: { base: 3, fee: this.calculateTxFee(3), total: this.getTotalCost(3) }
+    };
+  }
+
+  /**
+   * Convert GoodShits to GORB display
+   */
+  static formatGoodShits(amount: number): string {
+    const gorb = amount / GORB_TO_GOODSHITS;
+    if (gorb >= 0.0001) {
+      return `${gorb.toFixed(4)} GORB`;
+    }
+    return `${amount} GS`;
+  }
+
+  /**
+   * Get constants for UI
+   */
+  static getConstants() {
+    return {
+      GORB_TO_GOODSHITS,
+      TX_FEE_RATE,
+      INITIAL_BALANCE_GORB,
+      MIN_BALANCE_FOR_TX
+    };
   }
 
   /**

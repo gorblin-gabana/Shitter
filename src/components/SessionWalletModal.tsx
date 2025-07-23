@@ -99,8 +99,8 @@ export function SessionWalletModal({
                     <div>
                       <h3 className="text-blue-400 font-semibold mb-1">What is a Session Wallet?</h3>
                       <p className="text-gray-300 text-sm">
-                        A temporary wallet created from your signature and PIN for lightning-fast social transactions. 
-                        It holds GoodShits tokens for liking, sharing, and other social interactions.
+                        A temporary wallet for instant social transactions using GoodShits (Gorbchain's native token units). 
+                        1 GORB = 10,000 GoodShits. All transactions include a 20% network fee.
                       </p>
                     </div>
                   </div>

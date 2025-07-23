@@ -395,11 +395,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
   spendGoodShits: (amount, action) => {
     try {
-      const success = sessionWalletService.spendGoodShits(amount, action);
-      if (success) {
+      const result = sessionWalletService.spendGoodShits(amount, action);
+      if (result.success) {
         set({ goodShitsBalance: sessionWalletService.getGoodShitsBalance() });
       }
-      return success;
+      return result.success;
     } catch (error) {
       console.error('Failed to spend GoodShits:', error);
       return false;

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, Hash, AtSign, Image, Smile, ThumbsUp, ThumbsDown, Coins, Sparkles, Send, Trash2, Edit2, HelpCircle, Settings as SettingsIcon, Bell, Search, Filter, Plus, X } from 'lucide-react';
 import { useWalletStore } from '../stores/walletStore';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { sessionWalletService } from '../services/sessionWalletService';
 import { sendMemoTransaction } from '../services/transactionService';
 import { PublicKey } from '@solana/web3.js';
 import type { ParsedTransactionWithMeta } from '@solana/web3.js';
@@ -101,7 +102,7 @@ export function TwitterFeed({ onNavigateToProfile, selectedTribe = 'general', gl
   
   // Wallet and connection
   const { publicKey, signTransaction } = useWallet();
-  const { connection, mainWallet, sessionWalletActive, spendGoodShits, addGoodShits } = useWalletStore();
+  const { connection, mainWallet, sessionWalletActive, addGoodShits } = useWalletStore();
   const walletAddress = mainWallet || publicKey?.toString() || '';
   
   // Fetch state
@@ -114,8 +115,8 @@ export function TwitterFeed({ onNavigateToProfile, selectedTribe = 'general', gl
       return;
     }
 
-    const success = spendGoodShits(1, 'like');
-    if (success) {
+    const result = sessionWalletService.spendGoodShits(1, 'like');
+    if (result.success) {
       // Update post likes locally
       setPosts(prev => prev.map(post => 
         post.id === postId 
@@ -125,9 +126,9 @@ export function TwitterFeed({ onNavigateToProfile, selectedTribe = 'general', gl
       
       // Award the post author some GoodShits
       addGoodShits(2, 'received like');
-      toast.success('Post liked! 💖');
+      toast.success(`Post liked! 💖 (Cost: ${result.total} GS including ${result.fee} GS fee)`);
     } else {
-      toast.error('Insufficient GoodShits balance');
+      toast.error(`Insufficient balance. Need ${result.total} GS (${result.fee} GS fee included)`);
     }
   };
 
@@ -137,8 +138,8 @@ export function TwitterFeed({ onNavigateToProfile, selectedTribe = 'general', gl
       return;
     }
 
-    const success = spendGoodShits(2, 'good shit');
-    if (success) {
+    const result = sessionWalletService.spendGoodShits(2, 'good shit');
+    if (result.success) {
       setPosts(prev => prev.map(post => 
         post.id === postId 
           ? { ...post, goodShits: post.goodShits + 1, userUpvotes: post.userUpvotes + 1 }
@@ -147,9 +148,9 @@ export function TwitterFeed({ onNavigateToProfile, selectedTribe = 'general', gl
       
       // Award the post author more GoodShits for quality content
       addGoodShits(5, 'received good shit');
-      toast.success('Good shit! 🔥');
+      toast.success(`Good shit! 🔥 (Cost: ${result.total} GS)`);
     } else {
-      toast.error('Insufficient GoodShits balance');
+      toast.error(`Insufficient balance. Need ${result.total} GS`);
     }
   };
 
@@ -159,16 +160,16 @@ export function TwitterFeed({ onNavigateToProfile, selectedTribe = 'general', gl
       return;
     }
 
-    const success = spendGoodShits(1, 'bad shit');
-    if (success) {
+    const result = sessionWalletService.spendGoodShits(1, 'bad shit');
+    if (result.success) {
       setPosts(prev => prev.map(post => 
         post.id === postId 
           ? { ...post, badShits: post.badShits + 1, userDownvotes: post.userDownvotes + 1 }
           : post
       ));
-      toast.success('Feedback recorded 👎');
+      toast.success(`Feedback recorded 👎 (Cost: ${result.total} GS)`);
     } else {
-      toast.error('Insufficient GoodShits balance');
+      toast.error(`Insufficient balance. Need ${result.total} GS`);
     }
   };
 
@@ -178,8 +179,8 @@ export function TwitterFeed({ onNavigateToProfile, selectedTribe = 'general', gl
       return;
     }
 
-    const success = spendGoodShits(2, 'share');
-    if (success) {
+    const result = sessionWalletService.spendGoodShits(2, 'share');
+    if (result.success) {
       setPosts(prev => prev.map(post => 
         post.id === postId 
           ? { ...post, reposts: post.reposts + 1 }
@@ -188,9 +189,9 @@ export function TwitterFeed({ onNavigateToProfile, selectedTribe = 'general', gl
       
       // Award the post author for viral content
       addGoodShits(3, 'post shared');
-      toast.success('Post shared! 🚀');
+      toast.success(`Post shared! 🚀 (Cost: ${result.total} GS)`);
     } else {
-      toast.error('Insufficient GoodShits balance');
+      toast.error(`Insufficient balance. Need ${result.total} GS`);
     }
   };
   const [hasMore, setHasMore] = useState(true);
