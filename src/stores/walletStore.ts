@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } from '@solana/web3.js';
-import { sessionWalletService } from '../services/sessionWalletService';
+import { inAppWalletService } from '../services/sessionWalletService';
 
 export interface WalletState {
   // Main wallet (connected via adapter)
@@ -54,7 +54,7 @@ export interface WalletState {
   setSessionWalletActive: (active: boolean) => void;
   setGoodShitsBalance: (balance: number) => void;
   setShowSessionWalletModal: (show: boolean) => void;
-  createSessionWallet: (signature: Uint8Array, userAddress: string, pin: string) => Promise<void>;
+  createInAppWallet: (userAddress: string, pin: string) => Promise<void>;
   spendGoodShits: (amount: number, action: string) => boolean;
   addGoodShits: (amount: number, source: string) => void;
   checkSessionWalletStatus: () => void;
@@ -71,7 +71,7 @@ export interface TransferRecord {
   status: 'pending' | 'confirmed' | 'failed';
 }
 
-const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
+const RPC_ENDPOINT = 'https://rpc.gorbchain.xyz';
 
 export const useWalletStore = create<WalletState>((set, get) => ({
   mainWallet: null,
@@ -182,9 +182,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   
   setNetwork: (network) => {
     const endpoints = {
-      'devnet': 'https://api.devnet.solana.com',
-      'testnet': 'https://api.testnet.solana.com', 
-      'mainnet': 'https://api.mainnet-beta.solana.com'
+      'devnet': 'https://rpc.gorbchain.xyz',
+      'testnet': 'https://rpc.gorbchain.xyz', 
+      'mainnet': 'https://rpc.gorbchain.xyz'
     };
     
     set({ 
@@ -363,7 +363,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     });
     localStorage.removeItem('main-wallet');
     localStorage.removeItem('wallet-connected');
-    sessionWalletService.clearSession();
+    inAppWalletService.clearSession();
   },
 
   // Session wallet methods
@@ -375,29 +375,29 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   
   setShowSessionWalletModal: (show) => set({ showSessionWalletModal: show }),
 
-  createSessionWallet: async (signature, userAddress, pin) => {
+  createInAppWallet: async (userAddress, pin) => {
     try {
-      console.log('🚀 Creating session wallet...');
-      const wallet = await sessionWalletService.createSessionWallet(signature, userAddress, pin);
+      console.log('🚀 Creating in-app wallet...');
+      const wallet = await inAppWalletService.createInAppWallet(userAddress, pin);
       
       set({
         sessionWallet: wallet.address,
         sessionWalletActive: true,
-        goodShitsBalance: sessionWalletService.getGoodShitsBalance()
+        goodShitsBalance: inAppWalletService.getGoodShitsBalance()
       });
       
-      console.log('✅ Session wallet created and stored');
+      console.log('✅ In-app wallet created and stored');
     } catch (error) {
-      console.error('❌ Failed to create session wallet:', error);
+      console.error('❌ Failed to create in-app wallet:', error);
       throw error;
     }
   },
 
   spendGoodShits: (amount, action) => {
     try {
-      const result = sessionWalletService.spendGoodShits(amount, action);
+      const result = inAppWalletService.spendGoodShits(amount, action);
       if (result.success) {
-        set({ goodShitsBalance: sessionWalletService.getGoodShitsBalance() });
+        set({ goodShitsBalance: inAppWalletService.getGoodShitsBalance() });
       }
       return result.success;
     } catch (error) {
@@ -408,17 +408,17 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
   addGoodShits: (amount, source) => {
     try {
-      sessionWalletService.addGoodShits(amount, source);
-      set({ goodShitsBalance: sessionWalletService.getGoodShitsBalance() });
+      inAppWalletService.addGoodShits(amount, source);
+      set({ goodShitsBalance: inAppWalletService.getGoodShitsBalance() });
     } catch (error) {
       console.error('Failed to add GoodShits:', error);
     }
   },
 
   checkSessionWalletStatus: () => {
-    const isActive = sessionWalletService.isSessionActive();
-    const wallet = sessionWalletService.getSessionWallet();
-    const balance = sessionWalletService.getGoodShitsBalance();
+    const isActive = inAppWalletService.isSessionActive();
+    const wallet = inAppWalletService.getInAppWallet();
+    const balance = inAppWalletService.getGoodShitsBalance();
     
     set({
       sessionWallet: wallet?.address || null,
@@ -427,7 +427,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     });
     
     if (!isActive && get().sessionWallet) {
-      console.log('⏰ Session wallet expired, cleared from store');
+      console.log('⏰ In-app wallet session expired, cleared from store');
     }
   }
 }));

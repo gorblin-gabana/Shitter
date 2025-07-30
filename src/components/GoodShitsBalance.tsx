@@ -1,38 +1,49 @@
-import React from 'react';
-import { Zap, Timer, Plus, Minus, Info } from 'lucide-react';
+import React, { useState } from 'react';
+import { Zap, Plus, Minus, Info, Download } from 'lucide-react';
 import { useWalletStore } from '../stores/walletStore';
-import { sessionWalletService, SessionWalletService } from '../services/sessionWalletService';
+import { inAppWalletService } from '../services/sessionWalletService';
 
 export function GoodShitsBalance() {
   const { 
-    sessionWallet, 
-    sessionWalletActive, 
-    goodShitsBalance,
-    setShowSessionWalletModal 
+    mainWallet,
+    loadWallet,
+    isTransferring 
   } = useWalletStore();
+  
+  const [showLoadWallet, setShowLoadWallet] = useState(false);
+  const [loadAmount, setLoadAmount] = useState('10');
 
-  const timeRemaining = sessionWalletService.getTimeRemaining();
-  const formattedBalance = sessionWalletService.getFormattedBalance();
-  const gorbBalance = sessionWalletService.getGorbBalance();
-  const actionCosts = sessionWalletService.getActionCosts();
+  const inAppWallet = inAppWalletService.getInAppWallet();
+  const isActive = inAppWalletService.isSessionActive();
+  const formattedBalance = inAppWalletService.getFormattedBalance();
+  const gorbBalance = inAppWalletService.getGorbBalance();
+  const goodShitsBalance = inAppWalletService.getGoodShitsBalance();
+  const actionCosts = inAppWalletService.getActionCosts();
 
-  if (!sessionWalletActive) {
+  // Handle load wallet
+  const handleLoadWallet = async () => {
+    const amount = parseFloat(loadAmount);
+    if (isNaN(amount) || amount <= 0) return;
+    
+    const success = await loadWallet(amount);
+    if (success) {
+      setShowLoadWallet(false);
+      setLoadAmount('10');
+    }
+  };
+
+  // Show message if no in-app wallet exists (shouldn't happen after onboarding)
+  if (!isActive || !inAppWallet) {
     return (
       <div className="bg-gray-800/30 border border-gray-700/50 rounded-xl p-4">
         <div className="text-center">
           <div className="w-12 h-12 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl flex items-center justify-center mx-auto mb-3">
             <Zap className="w-6 h-6 text-white" />
           </div>
-          <h3 className="text-white font-semibold mb-2">Session Wallet</h3>
-          <p className="text-gray-400 text-sm mb-4">
-            Create a session wallet for lightning-fast social transactions
+          <h3 className="text-white font-semibold mb-2">In-App Wallet Not Available</h3>
+          <p className="text-gray-400 text-sm">
+            Please complete the onboarding process to create your in-app wallet.
           </p>
-          <button
-            onClick={() => setShowSessionWalletModal(true)}
-            className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200"
-          >
-            Create Session Wallet
-          </button>
         </div>
       </div>
     );
@@ -57,23 +68,75 @@ export function GoodShitsBalance() {
         </div>
       </div>
 
-      {/* Session Info */}
+      {/* In-App Wallet Info */}
       <div className="bg-gray-900/50 rounded-lg p-3 space-y-2">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-gray-400">Session Wallet</span>
+          <span className="text-gray-400">In-App Wallet</span>
           <span className="text-green-400">Active</span>
         </div>
         
         <div className="text-xs text-gray-500 font-mono">
-          {sessionWallet?.slice(0, 8)}...{sessionWallet?.slice(-8)}
+          {inAppWallet?.address.slice(0, 8)}...{inAppWallet?.address.slice(-8)}
         </div>
         
-        <div className="flex items-center gap-2 text-xs">
-          <Timer className="w-3 h-3 text-orange-400" />
-          <span className="text-orange-400">
-            {timeRemaining > 60 ? `${Math.floor(timeRemaining / 60)}h ${timeRemaining % 60}m` : `${timeRemaining}m`} remaining
-          </span>
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-gray-400">Connected from:</div>
+          <div className="text-xs text-gray-500 font-mono">
+            {mainWallet?.slice(0, 4)}...{mainWallet?.slice(-4)}
+          </div>
         </div>
+      </div>
+
+      {/* Load Wallet Section */}
+      <div className="bg-gray-900/50 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-white">Load GORB</span>
+          <button
+            onClick={() => setShowLoadWallet(!showLoadWallet)}
+            className="text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {showLoadWallet && (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Amount (GORB)</label>
+              <input
+                type="number"
+                value={loadAmount}
+                onChange={(e) => setLoadAmount(e.target.value)}
+                className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter amount"
+                min="0.01"
+                step="0.01"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowLoadWallet(false)}
+                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-3 rounded text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLoadWallet}
+                disabled={isTransferring || !loadAmount || parseFloat(loadAmount) <= 0}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+              >
+                {isTransferring ? (
+                  <>
+                    <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  `Load ${loadAmount || '0'} GORB`
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Quick Actions with Fees */}

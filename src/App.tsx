@@ -33,6 +33,7 @@ function AppContent() {
   const [selectedTribe, setSelectedTribe] = useState('general');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [showChat, setShowChat] = useState(false);
+  const [onboardingCompleted, setOnboardingCompleted] = useState(false);
 
   // Check if TrashPack is connected and get real address
   const trashpackWallet = (window as any).trashpack;
@@ -45,6 +46,10 @@ function AppContent() {
   // Restore wallet state on app startup
   React.useEffect(() => {
     restoreWalletState();
+    
+    // Check if onboarding was completed
+    const completed = localStorage.getItem('shitter-onboarding-completed');
+    setOnboardingCompleted(!!completed);
   }, [restoreWalletState]);
 
   // Check session wallet status periodically
@@ -89,11 +94,15 @@ function AppContent() {
     setShowTour(false);
   };
 
-  // Show login page when no wallet is connected
-  if (!isAnyWalletConnected) {
+  const handleOnboardingComplete = () => {
+    setOnboardingCompleted(true);
+  };
+
+  // Show login/onboarding page when no wallet is connected or onboarding not completed
+  if (!isAnyWalletConnected || (isAnyWalletConnected && !onboardingCompleted)) {
     return (
       <div className="h-screen w-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 overflow-hidden fixed inset-0 z-10">
-        <WalletConnection />
+        <WalletConnection onComplete={handleOnboardingComplete} />
       </div>
     );
   }
@@ -169,26 +178,17 @@ function AppContent() {
       {/* Floating Message Button */}
       <button
         onClick={() => setShowChat(true)}
-        className="fixed bottom-8 right-8 z-50 bg-green-500 hover:bg-green-600 text-white rounded-full shadow-lg p-4 flex items-center justify-center transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-400"
-        title="Open Messages"
-        style={{ boxShadow: '0 4px 24px rgba(16,185,129,0.25)' }}
+        className="fixed bottom-6 right-6 bg-green-500 hover:bg-green-600 text-white p-3 rounded-full shadow-lg z-30 transition-all duration-200 hover:scale-110"
+        title="Send Encrypted Message"
       >
-        <MessageCircle className="w-7 h-7" />
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
       </button>
-      {/* ChatPanel Modal */}
+
+      {/* Chat Modal */}
       {showChat && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="relative">
-            <button
-              onClick={() => setShowChat(false)}
-              className="absolute top-2 right-2 text-gray-400 hover:text-white bg-gray-800 rounded-full p-2 z-10"
-              title="Close"
-            >
-              ×
-            </button>
-            <ChatPanel />
-          </div>
-        </div>
+        <ChatPanel onClose={() => setShowChat(false)} />
       )}
 
       {/* Floating Messages Button */}
@@ -219,7 +219,7 @@ function AppContent() {
 }
 
 function App() {
-  const endpoint = 'https://api.mainnet-beta.solana.com';
+  const endpoint = 'https://rpc.gorbchain.xyz';
 
   // Memoize wallets to prevent context changes
   const wallets = React.useMemo(() => [

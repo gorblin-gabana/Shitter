@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { encryptDirect, decryptDirectString } from '@gorbchain-xyz/chaindecode';
+import { encryptMessage, decryptMessage } from '../services/encryptionService';
 import { useWalletStore } from '../stores/walletStore';
 import { sessionWalletService } from '../services/sessionWalletService';
 import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
@@ -7,144 +7,214 @@ import { Connection, PublicKey, Transaction, TransactionInstruction } from '@sol
 const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
 const GOODSHITS_PER_MESSAGE = 1; // 1 GoodShits per message
 
-export function ChatPanel() {
+interface ChatPanelProps {
+  onClose: () => void;
+}
+
+export function ChatPanel({ onClose }: ChatPanelProps) {
   const [recipientPubKey, setRecipientPubKey] = useState('');
   const [message, setMessage] = useState('');
   const [encrypted, setEncrypted] = useState<any>(null);
-  const [decrypted, setDecrypted] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [txStatus, setTxStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [decrypted, setDecrypted] = useState<string>('');
+  const [isSending, setIsSending] = useState(false);
+  const [txStatus, setTxStatus] = useState<string>('');
+  const [error, setError] = useState<string>('');
 
-  const { connection } = useWalletStore();
-  const sessionWallet = sessionWalletService.getSessionWallet();
-  const goodShitsBalance = sessionWalletService.getGoodShitsBalance();
+  const { connection, sessionWalletActive, goodShitsBalance } = useWalletStore();
 
-  // Encrypt and send message as memo
-  const handleSend = async () => {
-    setLoading(true);
-    setDecrypted(null);
-    setError(null);
-    setTxStatus(null);
+  const handleSendMessage = async () => {
+    if (!recipientPubKey || !message.trim()) {
+      setError('Please enter recipient public key and message');
+      return;
+    }
+
+    if (!sessionWalletActive) {
+      setError('Session wallet not active');
+      return;
+    }
+
+    if (goodShitsBalance < GOODSHITS_PER_MESSAGE) {
+      setError('Insufficient GoodShits balance');
+      return;
+    }
+
+    if (!connection) {
+      setError('No connection available');
+      return;
+    }
+
+    setIsSending(true);
+    setError('');
+    setTxStatus('Encrypting message...');
+
     try {
-      if (!sessionWallet || !connection) {
-        setError('Session wallet or connection not available.');
-        setLoading(false);
-        return;
+      // Get session wallet
+      const sessionWallet = sessionWalletService.getSessionWallet();
+      if (!sessionWallet) {
+        throw new Error('Failed to get session wallet');
       }
-      if (goodShitsBalance < GOODSHITS_PER_MESSAGE) {
-        setError('Insufficient GoodShits balance.');
-        setLoading(false);
-        return;
-      }
-      // Encrypt message
-      const encryptedMsg = await encryptDirect(
+
+      // Encrypt the message
+      const encryptedMessage = await encryptMessage(
         message,
         recipientPubKey,
-        sessionWallet.keypair.secretKey,
-        { compress: true }
+        sessionWallet.keypair.secretKey.toString()
       );
-      setEncrypted(encryptedMsg);
-      // Prepare memo
-      const memo = JSON.stringify({ type: 'dm', to: recipientPubKey, data: encryptedMsg });
-      // Create memo instruction
-      const memoIx = new TransactionInstruction({
+
+      setEncrypted(encryptedMessage);
+      setTxStatus('Sending encrypted message on-chain...');
+
+      // Create memo transaction
+      const transaction = new Transaction();
+      const memoInstruction = new TransactionInstruction({
         keys: [],
         programId: MEMO_PROGRAM_ID,
-        data: Buffer.from(memo, 'utf8'),
+        data: Buffer.from(JSON.stringify({
+          type: 'encrypted_message',
+          data: encryptedMessage,
+          recipient: recipientPubKey,
+          timestamp: Date.now()
+        }))
       });
-      // Create transaction
-      const tx = new Transaction().add(memoIx);
-      tx.feePayer = sessionWallet.keypair.publicKey;
-      const { blockhash } = await connection.getLatestBlockhash();
-      tx.recentBlockhash = blockhash;
-      // Sign
-      tx.sign(sessionWallet.keypair);
-      // Send
-      setTxStatus('Sending transaction...');
-      const sig = await connection.sendRawTransaction(tx.serialize());
-      setTxStatus('Confirming transaction...');
-      await connection.confirmTransaction(sig, 'confirmed');
-      setTxStatus('Message sent! TX: ' + sig.slice(0, 8) + '...');
+
+      transaction.add(memoInstruction);
+
+      // Send transaction
+      const signature = await connection.sendTransaction(transaction, [sessionWallet.keypair]);
+      setTxStatus(`Message sent! Signature: ${signature}`);
+
       // Deduct GoodShits
       sessionWalletService.spendGoodShits(GOODSHITS_PER_MESSAGE, 'send-message');
-    } catch (e) {
-      setError('Failed to send: ' + (e instanceof Error ? e.message : String(e)));
+
+      // Clear form
+      setMessage('');
+      setRecipientPubKey('');
+
+    } catch (err) {
+      console.error('Failed to send message:', err);
+      setError(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
-      setLoading(false);
+      setIsSending(false);
     }
   };
 
-  // Decrypt message (simulate as recipient, for demo)
-  const handleDecrypt = async () => {
-    if (!encrypted) return;
-    setLoading(true);
+  const handleDecryptMessage = async () => {
+    if (!encrypted) {
+      setError('No encrypted message to decrypt');
+      return;
+    }
+
     try {
-      if (!sessionWallet) throw new Error('No session wallet');
-      // Use session wallet as recipient for demo
-      const decryptedMsg = await decryptDirectString(encrypted, sessionWallet.keypair.secretKey);
-      setDecrypted(decryptedMsg);
-    } catch (e) {
-      setError('Decryption failed: ' + (e as Error).message);
-    } finally {
-      setLoading(false);
+      // Get session wallet
+      const sessionWallet = sessionWalletService.getSessionWallet();
+      if (!sessionWallet) {
+        throw new Error('Failed to get session wallet');
+      }
+
+      const decryptedMessage = await decryptMessage(encrypted, sessionWallet.keypair.secretKey.toString());
+      setDecrypted(decryptedMessage);
+    } catch (err) {
+      console.error('Failed to decrypt message:', err);
+      setError(err instanceof Error ? err.message : 'Failed to decrypt message');
     }
   };
 
   return (
-    <div className="p-6 bg-gray-900 rounded-xl shadow-lg max-w-lg mx-auto mt-10">
-      <h2 className="text-xl font-bold text-white mb-4">Encrypted Direct Message</h2>
-      <div className="mb-3">
-        <label className="block text-gray-400 text-sm mb-1">Recipient Public Key</label>
-        <input
-          type="text"
-          value={recipientPubKey}
-          onChange={e => setRecipientPubKey(e.target.value)}
-          className="w-full px-3 py-2 rounded bg-gray-800 text-white border border-gray-700 mb-2"
-        />
-      </div>
-      <div className="mb-3">
-        <label className="block text-gray-400 text-sm mb-1">Message</label>
-        <input
-          type="text"
-          value={message}
-          onChange={e => setMessage(e.target.value)}
-          className="w-full px-3 py-2 rounded bg-gray-800 text-white border border-gray-700 mb-2"
-        />
-      </div>
-      <div className="mb-3 text-sm text-gray-400">GoodShits Balance: <span className="text-green-400 font-bold">{goodShitsBalance}</span></div>
-      <button
-        onClick={handleSend}
-        disabled={loading || !recipientPubKey || !message || !sessionWallet || !connection}
-        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold mb-4"
-      >
-        {loading ? 'Sending...' : 'Send Encrypted Message'}
-      </button>
-      {txStatus && (
-        <div className="mt-2 p-2 bg-blue-900 text-blue-300 rounded text-xs">{txStatus}</div>
-      )}
-      {error && (
-        <div className="mt-2 p-2 bg-red-900 text-red-300 rounded text-xs">{error}</div>
-      )}
-      {encrypted && (
-        <div className="mt-4 p-3 bg-gray-800 rounded">
-          <div className="text-xs text-gray-400 mb-2">Encrypted Message:</div>
-          <pre className="text-xs text-green-400 break-all whitespace-pre-wrap">{JSON.stringify(encrypted, null, 2)}</pre>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 w-full max-w-md">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold text-white">Encrypted Messages</h2>
           <button
-            onClick={handleDecrypt}
-            disabled={loading || !sessionWallet}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold mt-2"
+            onClick={onClose}
+            className="text-gray-400 hover:text-white text-2xl"
           >
-            {loading ? 'Decrypting...' : 'Decrypt as Recipient'}
+            ×
           </button>
+        </div>
+
+        <div className="space-y-4">
+          {/* GoodShits Balance */}
+          <div className="bg-gray-800 p-3 rounded">
+            <p className="text-sm text-gray-300">GoodShits Balance</p>
+            <p className="text-lg font-bold text-green-400">{goodShitsBalance} GS</p>
+          </div>
+
+          {/* Recipient Public Key */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Recipient Public Key
+            </label>
+            <input
+              type="text"
+              value={recipientPubKey}
+              onChange={(e) => setRecipientPubKey(e.target.value)}
+              placeholder="Enter recipient's public key"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white placeholder-gray-400"
+            />
+          </div>
+
+          {/* Message Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Message
+            </label>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Enter your message"
+              rows={3}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white placeholder-gray-400"
+            />
+          </div>
+
+          {/* Send Button */}
+          <button
+            onClick={handleSendMessage}
+            disabled={isSending || !message.trim() || !recipientPubKey || !sessionWalletActive}
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 px-4 rounded font-medium"
+          >
+            {isSending ? 'Sending...' : `Send Message (${GOODSHITS_PER_MESSAGE} GS)`}
+          </button>
+
+          {/* Transaction Status */}
+          {txStatus && (
+            <div className="bg-blue-900/20 border border-blue-500 p-3 rounded">
+              <p className="text-sm text-blue-300">{txStatus}</p>
+            </div>
+          )}
+
+          {/* Error Display */}
+          {error && (
+            <div className="bg-red-900/20 border border-red-500 p-3 rounded">
+              <p className="text-sm text-red-300">{error}</p>
+            </div>
+          )}
+
+          {/* Encrypted Message Display */}
+          {encrypted && (
+            <div className="bg-gray-800 p-3 rounded">
+              <p className="text-sm text-gray-300 mb-2">Encrypted Message:</p>
+              <div className="bg-gray-900 p-2 rounded text-xs text-gray-400 break-all">
+                {JSON.stringify(encrypted, null, 2)}
+              </div>
+              <button
+                onClick={handleDecryptMessage}
+                className="mt-2 bg-gray-700 hover:bg-gray-600 text-white py-1 px-3 rounded text-sm"
+              >
+                Decrypt Message
+              </button>
+            </div>
+          )}
+
+          {/* Decrypted Message Display */}
           {decrypted && (
-            <div className="mt-3 p-2 bg-green-900 rounded text-green-200">
-              <div className="text-xs mb-1">Decrypted Message:</div>
-              <div className="text-base">{decrypted}</div>
+            <div className="bg-green-900/20 border border-green-500 p-3 rounded">
+              <p className="text-sm text-green-300 mb-1">Decrypted Message:</p>
+              <p className="text-white">{decrypted}</p>
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 } 

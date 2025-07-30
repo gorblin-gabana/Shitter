@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Search, Bell, Settings, User } from 'lucide-react';
+import { Search, Bell, Settings, User, Wallet, LogOut } from 'lucide-react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletStore } from '../stores/walletStore';
 import { Logo } from './ui/Logo';
 
 interface HeaderProps {
@@ -12,6 +14,65 @@ interface HeaderProps {
 
 export function Header({ onSearch, onOpenNotifications, onOpenSettings, onOpenProfile, onLogoClick }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const { wallet, disconnect } = useWallet();
+  const { mainWallet, isTrashpackConnected, disconnectWallet } = useWalletStore();
+
+  const getWalletInfo = () => {
+    if (isTrashpackConnected) {
+      return {
+        name: 'TrashPack',
+        icon: '/trashpack.png',
+        address: mainWallet,
+        isImage: true
+      };
+    }
+
+    if (wallet && mainWallet) {
+      const walletName = wallet.adapter.name;
+      let icon = '👻'; // Default to Phantom icon
+      
+      switch (walletName.toLowerCase()) {
+        case 'phantom':
+          icon = '👻';
+          break;
+        case 'solflare':
+          icon = '☀️';
+          break;
+        case 'backpack':
+          icon = '🎒';
+          break;
+        default:
+          icon = '👛';
+      }
+
+      return {
+        name: walletName,
+        icon,
+        address: mainWallet,
+        isImage: false
+      };
+    }
+
+    return null;
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      if (isTrashpackConnected) {
+        const trashpack = (window as any).trashpack;
+        if (trashpack?.disconnect) {
+          await trashpack.disconnect();
+        }
+      } else {
+        await disconnect();
+      }
+      disconnectWallet();
+    } catch (error) {
+      console.error('Failed to disconnect wallet:', error);
+    }
+  };
+
+  const walletInfo = getWalletInfo();
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +162,33 @@ export function Header({ onSearch, onOpenNotifications, onOpenSettings, onOpenPr
             <User className="w-5 h-5" />
           </button>
           
-          {/* Wallet info/disconnect button will be added here later */}
+          {/* Wallet Connection Info */}
+          {walletInfo && (
+            <div className="flex items-center gap-2 bg-gray-800/30 rounded-lg px-3 py-2 border border-gray-700/50">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded flex items-center justify-center">
+                  {walletInfo.isImage ? (
+                    <img src={walletInfo.icon} alt={walletInfo.name} className="w-4 h-4" />
+                  ) : (
+                    <span className="text-sm">{walletInfo.icon}</span>
+                  )}
+                </div>
+                <div className="hidden sm:block">
+                  <div className="text-xs text-gray-400">{walletInfo.name}</div>
+                  <div className="text-xs text-gray-500 font-mono">
+                    {walletInfo.address?.slice(0, 4)}...{walletInfo.address?.slice(-4)}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={handleDisconnect}
+                className="p-1 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
+                title="Disconnect wallet"
+              >
+                <LogOut className="w-3 h-3" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

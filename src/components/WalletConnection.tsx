@@ -5,6 +5,7 @@ import { Wallet, ExternalLink, Shield, Zap } from 'lucide-react';
 import { useWalletStore } from '../stores/walletStore';
 import { Logo } from './ui/Logo';
 import { SessionWalletModal } from './SessionWalletModal';
+import { OnboardingFlow } from './OnboardingFlow';
 
 interface WalletOption {
   id: string;
@@ -80,8 +81,11 @@ function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-// Remove prop type for onTrashpackLogin since we're going direct to dashboard
-export function WalletConnection() {
+interface WalletConnectionProps {
+  onComplete?: () => void;
+}
+
+export function WalletConnection({ onComplete }: WalletConnectionProps = {}) {
   const { connected, publicKey, connect, wallets, select, signMessage } = useWallet();
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -100,10 +104,11 @@ export function WalletConnection() {
   const [session, setSessionState] = useState(() => getSession());
   const [isSigning, setIsSigning] = useState(false);
   const [isCreatingSessionWallet, setIsCreatingSessionWallet] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Initialize connection
   useEffect(() => {
-    const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+    const connection = new Connection('https://rpc.gorbchain.xyz', 'confirmed');
     setConnection(connection);
   }, [setConnection]);
 
@@ -126,46 +131,70 @@ export function WalletConnection() {
     }
   }, [gameWallet, generateGameWallet]);
 
-  // After wallet connection, check session or prompt for signature
+  // After wallet connection, check if onboarding is needed
   useEffect(() => {
-    if (connected && publicKey && signMessage) {
-      const session = getSession();
-      if (!session || session.publicKey !== publicKey.toString()) {
-        // Prompt for signature
-        (async () => {
-          setIsSigning(true);
-          try {
-            const message = `Sign to log in to Gorb Social.\nSession valid for 24 hours.\nWallet: ${publicKey.toString()}`;
-            const encodedMessage = new TextEncoder().encode(message);
-            
-            const signature = await signMessage(encodedMessage);
-            // Store session
-            const sessionObj = {
-              publicKey: publicKey.toString(),
-              signature: Array.from(signature),
-              timestamp: Date.now(),
-            };
-            setSession(sessionObj);
-            setSessionState(sessionObj);
-            
-            // Show session wallet modal to create in-app wallet
-            setShowSessionWalletModal(true);
-          } catch (e) {
-            console.error('Signature failed:', e);
-            clearSession();
-            setSessionState(null);
-          } finally {
-            setIsSigning(false);
-          }
-        })();
+    if (connected && publicKey) {
+      const onboardingCompleted = localStorage.getItem('shitter-onboarding-completed');
+      const sessionWalletExists = localStorage.getItem('shitter-session-wallet-address');
+      
+      if (!onboardingCompleted || !sessionWalletExists) {
+        // Show onboarding flow
+        setShowOnboarding(true);
       } else {
-        setSessionState(session);
+        // User has completed onboarding, try to restore session
+        const session = getSession();
+        if (!session || session.publicKey !== publicKey.toString()) {
+          // Need to sign in again
+          (async () => {
+            setIsSigning(true);
+            try {
+              if (!signMessage) {
+                throw new Error('Wallet does not support message signing');
+              }
+              
+              const message = `Sign to log in to Gorb Social.\nSession valid for 24 hours.\nWallet: ${publicKey.toString()}`;
+              const encodedMessage = new TextEncoder().encode(message);
+              const signature = await signMessage(encodedMessage);
+              
+              const sessionObj = {
+                publicKey: publicKey.toString(),
+                signature: Array.from(signature),
+                timestamp: Date.now(),
+              };
+              setSession(sessionObj);
+              setSessionState(sessionObj);
+              
+              // Try to recreate session wallet automatically
+              try {
+                const signatureUint8Array = new Uint8Array(sessionObj.signature);
+                await createSessionWallet(signatureUint8Array, publicKey.toString());
+                console.log('✅ Session wallet recreated automatically');
+                onComplete?.();
+              } catch (error) {
+                console.log('Failed to recreate session wallet:', error);
+                // Force re-onboarding if session wallet creation fails
+                localStorage.removeItem('shitter-onboarding-completed');
+                setShowOnboarding(true);
+              }
+            } catch (e) {
+              console.error('Signature failed:', e);
+              clearSession();
+              setSessionState(null);
+            } finally {
+              setIsSigning(false);
+            }
+          })();
+        } else {
+          setSessionState(session);
+          onComplete?.();
+        }
       }
     } else {
       clearSession();
       setSessionState(null);
+      setShowOnboarding(false);
     }
-  }, [connected, publicKey, signMessage]);
+  }, [connected, publicKey, signMessage, createSessionWallet, onComplete]);
 
 
   // TrashPack login logic
@@ -252,22 +281,39 @@ export function WalletConnection() {
       );
 
       if (walletAdapter) {
+        // Select the wallet first
         select(walletAdapter.adapter.name);
+        
+        // Wait a moment for the selection to take effect
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Now try to connect
         await connect();
       } else {
         // If wallet not found, redirect to installation
+        console.log(`Wallet ${walletOption.name} not found, redirecting to installation`);
         window.open(walletOption.url, '_blank');
       }
     } catch (error) {
       console.error('Wallet connection failed:', error);
+      // Check if it's a WalletNotSelectedError and provide better handling
+      if (error.name === 'WalletNotSelectedError') {
+        console.error('No wallet was selected. Available wallets:', wallets.map(w => w.adapter.name));
+      }
     } finally {
       setIsConnecting(false);
       setSelectedWallet(null);
     }
   };
 
-  // Handle session wallet creation
-  const handleCreateSessionWallet = async (pin: string) => {
+  // Handle onboarding completion
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    onComplete?.();
+  };
+
+  // Handle session wallet creation (legacy - now handled in onboarding)
+  const handleCreateSessionWallet = async () => {
     if (!session || !publicKey) {
       throw new Error('No active session or wallet');
     }
@@ -275,8 +321,19 @@ export function WalletConnection() {
     setIsCreatingSessionWallet(true);
     try {
       const signatureUint8Array = new Uint8Array(session.signature);
-      await createSessionWallet(signatureUint8Array, publicKey.toString(), pin);
+      await createSessionWallet(signatureUint8Array, publicKey.toString());
       console.log('✅ Session wallet created successfully');
+      
+      // Store wallet info in localStorage for fast access
+      const walletInfo = {
+        mainWallet: publicKey.toString(),
+        sessionCreated: Date.now(),
+        lastSession: session.timestamp
+      };
+      localStorage.setItem('shitter-wallet-info', JSON.stringify(walletInfo));
+      
+      // Close modal after successful creation
+      setShowSessionWalletModal(false);
     } catch (error) {
       console.error('❌ Failed to create session wallet:', error);
       throw error;
@@ -285,7 +342,12 @@ export function WalletConnection() {
     }
   };
 
-  // Optionally, show a loading spinner or message while signing
+  // Show onboarding flow if wallet is connected but onboarding not completed
+  if (showOnboarding && connected && publicKey) {
+    return <OnboardingFlow onComplete={handleOnboardingComplete} />;
+  }
+
+  // Show loading spinner while signing
   if (isSigning) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 text-white">

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Lock, Shield, Zap, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { X, Lock, Shield, Zap, AlertCircle } from 'lucide-react';
 
 interface SessionWalletModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreateWallet: (pin: string) => Promise<void>;
+  onCreateWallet: () => Promise<void>;
   userAddress: string;
   isCreating: boolean;
 }
@@ -16,53 +16,25 @@ export function SessionWalletModal({
   userAddress, 
   isCreating 
 }: SessionWalletModalProps) {
-  const [pin, setPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState('');
   const [step, setStep] = useState<'info' | 'create'>('info');
 
   useEffect(() => {
     if (!isOpen) {
-      setPin('');
-      setConfirmPin('');
       setError('');
       setStep('info');
-      setShowPin(false);
     }
   }, [isOpen]);
 
   const handleCreateWallet = async () => {
-    if (pin.length < 4) {
-      setError('PIN must be at least 4 characters');
-      return;
-    }
-
-    if (pin !== confirmPin) {
-      setError('PINs do not match');
-      return;
-    }
-
     try {
-      await onCreateWallet(pin);
+      await onCreateWallet();
       onClose();
     } catch (error) {
-      setError('Failed to create session wallet');
+      setError((error as Error).message || 'Failed to create session wallet');
     }
   };
 
-  const handlePinChange = (value: string, isConfirm = false) => {
-    // Allow only alphanumeric characters for PIN
-    const cleanValue = value.replace(/[^a-zA-Z0-9]/g, '');
-    
-    if (isConfirm) {
-      setConfirmPin(cleanValue);
-    } else {
-      setPin(cleanValue);
-    }
-    
-    if (error) setError('');
-  };
 
   if (!isOpen) return null;
 
@@ -99,7 +71,7 @@ export function SessionWalletModal({
                     <div>
                       <h3 className="text-blue-400 font-semibold mb-1">What is a Session Wallet?</h3>
                       <p className="text-gray-300 text-sm">
-                        A temporary wallet for instant social transactions using GoodShits (Gorbchain's native token units). 
+                        A secure temporary wallet for instant social transactions using GoodShits (Gorbchain's native token units). 
                         1 GORB = 10,000 GoodShits. All transactions include a 20% network fee.
                       </p>
                     </div>
@@ -113,7 +85,7 @@ export function SessionWalletModal({
                   </div>
                   <div className="bg-gray-800/30 border border-gray-700/50 rounded-lg p-3">
                     <div className="text-cyan-400 mb-1">🔒 Secure</div>
-                    <div className="text-xs text-gray-400">Generated from your signature</div>
+                    <div className="text-xs text-gray-400">Secured with passkey authentication</div>
                   </div>
                 </div>
 
@@ -123,7 +95,7 @@ export function SessionWalletModal({
                     <div>
                       <h3 className="text-yellow-400 font-semibold mb-1">Session Only</h3>
                       <p className="text-gray-300 text-sm">
-                        This wallet exists only during your session. Refreshing or leaving will require you to sign and create it again.
+                        This wallet is secured with your device's passkey and exists only during your session. Refreshing or leaving will require re-authentication.
                       </p>
                     </div>
                   </div>
@@ -147,48 +119,36 @@ export function SessionWalletModal({
               {/* Create Step */}
               <div className="space-y-4">
                 <div className="text-center mb-6">
-                  <div className="text-lg font-semibold text-white mb-1">Create Your PIN</div>
+                  <div className="text-lg font-semibold text-white mb-1">Create Session Wallet</div>
                   <div className="text-sm text-gray-400">
-                    This PIN will be combined with your signature to generate your session wallet
+                    Your session wallet will be created deterministically from your wallet address
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Session PIN (4+ characters)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPin ? 'text' : 'password'}
-                        value={pin}
-                        onChange={(e) => handlePinChange(e.target.value)}
-                        placeholder="Enter your PIN"
-                        className="w-full bg-gray-800/50 border border-gray-700/50 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                        maxLength={20}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPin(!showPin)}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-                      >
-                        {showPin ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                      </button>
+                  <div className="bg-gray-800/30 border border-gray-700/50 rounded-xl p-4">
+                    <div className="flex items-start gap-3">
+                      <Shield className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="text-white font-medium mb-1">Deterministic Generation</h3>
+                        <p className="text-gray-400 text-sm">
+                          Your session wallet will be generated from your wallet address. The same address will always generate the same session wallet.
+                        </p>
+                      </div>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Confirm PIN
-                    </label>
-                    <input
-                      type={showPin ? 'text' : 'password'}
-                      value={confirmPin}
-                      onChange={(e) => handlePinChange(e.target.value, true)}
-                      placeholder="Confirm your PIN"
-                      className="w-full bg-gray-800/50 border border-gray-700/50 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      maxLength={20}
-                    />
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                    <div className="flex items-start gap-3">
+                      <Lock className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="text-blue-400 font-medium mb-1">Maximum Security</h3>
+                        <p className="text-gray-300 text-sm">
+                          Your session wallet is deterministically generated from your wallet address. 
+                          {window.location.protocol === 'https:' ? ' Passkey authentication will be used if available.' : ' Passkey requires HTTPS.'}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   {error && (
@@ -208,7 +168,7 @@ export function SessionWalletModal({
                   </button>
                   <button
                     onClick={handleCreateWallet}
-                    disabled={!pin || !confirmPin || pin !== confirmPin || pin.length < 4 || isCreating}
+                    disabled={isCreating}
                     className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold py-3 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isCreating ? (
@@ -218,7 +178,7 @@ export function SessionWalletModal({
                       </>
                     ) : (
                       <>
-                        <Lock className="w-4 h-4" />
+                        <Shield className="w-4 h-4" />
                         Create Wallet
                       </>
                     )}
