@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
+import {
+  PhantomWalletAdapter,
+  SolflareWalletAdapter,
+} from '@solana/wallet-adapter-wallets';
 import { TorusWalletAdapter } from '@solana/wallet-adapter-torus';
+import { CoinbaseWalletAdapter } from '@solana/wallet-adapter-coinbase';
+import { LedgerWalletAdapter } from '@solana/wallet-adapter-ledger';
+import { TrashpackWalletAdapter } from 'trashpack-wallet-adapter';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Connection } from '@solana/web3.js';
 import { Toaster } from 'sonner';
 import { MessageCircle } from 'lucide-react';
 
@@ -26,7 +31,7 @@ type PageType = 'feed' | 'profile' | 'avatar-creator';
 
 function AppContent() {
   
-  const { setMainWallet, setConnection, mainWallet, setIsTrashpackConnected, isTrashpackConnected, setTrashpackAddress, restoreWalletState, checkSessionWalletStatus } = useWalletStore();
+  const { setMainWallet, setConnection, mainWallet, restoreWalletState, checkSessionWalletStatus } = useWalletStore();
   const { connected, publicKey } = useWallet();
   const [showTour, setShowTour] = useState(false);
   const [currentPage, setCurrentPage] = useState<PageType>('feed');
@@ -35,10 +40,6 @@ function AppContent() {
   const [showChat, setShowChat] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
 
-  // Check if TrashPack is connected and get real address
-  const trashpackWallet = (window as any).trashpack;
-  const trashpackConnected = Boolean(trashpackWallet?.connected);
-  const trashpackAddress = trashpackWallet?.publicKey?.toString() || null;
   
   // SIMPLIFIED: Use mainWallet as primary source of truth
   const isAnyWalletConnected = !!mainWallet;
@@ -65,14 +66,6 @@ function AppContent() {
     return () => clearInterval(interval);
   }, [checkSessionWalletStatus]);
 
-  // Handle wallet state updates in useEffect to avoid render loop
-  React.useEffect(() => {
-    if (trashpackConnected && trashpackAddress && !mainWallet) {
-      setMainWallet(trashpackAddress);
-      setTrashpackAddress(trashpackAddress);
-      setIsTrashpackConnected(true);
-    }
-  }, [trashpackConnected, trashpackAddress, mainWallet, setMainWallet, setTrashpackAddress, setIsTrashpackConnected]);
 
   React.useEffect(() => {
     if (connected && publicKey && !mainWallet) {
@@ -226,6 +219,9 @@ function App() {
     new PhantomWalletAdapter(),
     new SolflareWalletAdapter(),
     new TorusWalletAdapter(),
+    new CoinbaseWalletAdapter(),
+    new LedgerWalletAdapter(),
+    new TrashpackWalletAdapter()
   ], []);
 
   return (

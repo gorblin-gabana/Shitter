@@ -55,6 +55,7 @@ export interface WalletState {
   setGoodShitsBalance: (balance: number) => void;
   setShowSessionWalletModal: (show: boolean) => void;
   createInAppWallet: (userAddress: string, pin: string) => Promise<void>;
+  createSessionWallet: (signature: Uint8Array, userAddress: string) => Promise<void>;
   spendGoodShits: (amount: number, action: string) => boolean;
   addGoodShits: (amount: number, source: string) => void;
   checkSessionWalletStatus: () => void;
@@ -412,6 +413,26 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       set({ goodShitsBalance: inAppWalletService.getGoodShitsBalance() });
     } catch (error) {
       console.error('Failed to add GoodShits:', error);
+    }
+  },
+
+  createSessionWallet: async (signature: Uint8Array, userAddress: string) => {
+    try {
+      console.log('🚀 Creating session wallet using signature...');
+      // Convert signature to PIN-like key for session wallet creation
+      const pinFromSignature = Array.from(signature.slice(0, 6)).join('');
+      await inAppWalletService.createInAppWallet(userAddress, pinFromSignature);
+      
+      set({
+        sessionWallet: inAppWalletService.getInAppWallet()?.address || null,
+        sessionWalletActive: true,
+        goodShitsBalance: inAppWalletService.getGoodShitsBalance()
+      });
+      
+      console.log('✅ Session wallet created and stored');
+    } catch (error) {
+      console.error('❌ Failed to create session wallet:', error);
+      throw error;
     }
   },
 

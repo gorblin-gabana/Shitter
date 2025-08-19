@@ -89,14 +89,12 @@ export function WalletConnection({ onComplete }: WalletConnectionProps = {}) {
   const { connected, publicKey, connect, wallets, select, signMessage } = useWallet();
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [trashpackError, setTrashpackError] = useState<string | null>(null);
-  const [trashpackAddress, setTrashpackAddress] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const {
     gameWallet,
     generateGameWallet,
     setConnection,
     setMainWallet,
-    setIsTrashpackConnected,
     showSessionWalletModal,
     setShowSessionWalletModal,
     createSessionWallet
@@ -133,12 +131,16 @@ export function WalletConnection({ onComplete }: WalletConnectionProps = {}) {
 
   // After wallet connection, check if onboarding is needed
   useEffect(() => {
+    console.log('🔍 Checking onboarding status:', { connected, publicKey: publicKey?.toString() });
     if (connected && publicKey) {
       const onboardingCompleted = localStorage.getItem('shitter-onboarding-completed');
       const sessionWalletExists = localStorage.getItem('shitter-session-wallet-address');
       
+      console.log('📝 Onboarding check:', { onboardingCompleted, sessionWalletExists });
+      
       if (!onboardingCompleted || !sessionWalletExists) {
         // Show onboarding flow
+        console.log('🚀 Starting onboarding flow');
         setShowOnboarding(true);
       } else {
         // User has completed onboarding, try to restore session
@@ -197,108 +199,119 @@ export function WalletConnection({ onComplete }: WalletConnectionProps = {}) {
   }, [connected, publicKey, signMessage, createSessionWallet, onComplete]);
 
 
-  // TrashPack login logic
-  const loginWithTrashpack = async () => {
-    // Prevent multiple simultaneous login attempts
-    if (isConnecting) {
-      console.log('🔄 Login already in progress, skipping...');
-      return;
-    }
-    
-    console.log('🚀 Starting TrashPack login...');
-    setIsConnecting(true);
-    setTrashpackError(null);
-    setSelectedWallet(primaryWallet.id);
-    
-    try {
-      console.log('🔍 Checking for TrashPack wallet...');
-      
-      if (typeof window === 'undefined') {
-        console.log('❌ Window is undefined');
-        setTrashpackError('Window is undefined.');
-        return;
-      }
-      
-      if (!(window as any).trashpack) {
-        console.log('❌ TrashPack wallet not found on window object');
-        setTrashpackError('TrashPack wallet not found. Please install the TrashPack extension.');
-        window.open(primaryWallet.url, '_blank');
-        return;
-      }
-      
-      const trashpack = (window as any).trashpack;
-      console.log('✅ TrashPack wallet found:', trashpack);
-      
-      console.log('🔗 Attempting to connect...');
-      const result = await trashpack.connect();
-      console.log('✅ Connection result:', result);
-      
-      let address = result?.publicKey;
-      if (address && typeof address !== 'string') {
-        address = address.toString();
-      }
-      console.log('📍 Address extracted:', address, 'Type:', typeof address);
-      
-      if (!address || typeof address !== 'string' || address.length < 32) {
-        throw new Error('No valid address returned from wallet connection');
-      }
-      
-      // Set the main wallet in the store - this will trigger the dashboard
-      setMainWallet(address);
-      setTrashpackAddress(address);
-      setIsTrashpackConnected(true); // Ensure state is updated
-      setSelectedWallet(null);
-      
-      // Dispatch a custom event to notify the app
-      window.dispatchEvent(new Event('trashpack-connect'));
-      
-      console.log('✅ TrashPack login successful! Dashboard should now load...');
-      console.log('📊 Final wallet state - mainWallet set to:', address);
-      
-    } catch (e: any) {
-      console.error('❌ TrashPack login failed:', e);
-      setTrashpackError(e?.message || 'Failed to connect to TrashPack wallet.');
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
   const handleWalletSelect = async (walletOption: WalletOption) => {
-    if (walletOption.isOfficialWallet) {
-      // Use TrashPack login logic
-      await loginWithTrashpack();
-      return;
-    }
-
     setSelectedWallet(walletOption.id);
     setIsConnecting(true);
+    setConnectionError(null);
 
     try {
+      // Special handling for TrashPack wallet
+      if (walletOption.id === 'trashpack') {
+        // Check if TrashPack is actually installed
+        if (typeof window !== 'undefined') {
+          const trashpackWallet = (window as any).trashpack;
+          
+          if (!trashpackWallet) {
+            console.log('❌ TrashPack wallet not found on window object');
+            setConnectionError('TrashPack wallet extension not found. Please install the TrashPack extension.');
+            window.open(walletOption.url, '_blank');
+            return;
+          }
+          
+          if (!trashpackWallet.isTrashPack) {
+            console.log('❌ Invalid TrashPack wallet detected');
+            setConnectionError('Invalid TrashPack wallet detected. Please ensure you have the correct extension.');
+            return;
+          }
+          
+          console.log('✅ TrashPack wallet detected:', trashpackWallet);
+        }
+      }
+      
+      // Map wallet option IDs to adapter names
+      const walletAdapterMap: { [key: string]: string } = {
+        'trashpack': 'TrashPack',
+        'phantom': 'Phantom',
+        'solflare': 'Solflare',
+        'backpack': 'Backpack',
+        'torus': 'Torus',
+        'coinbase': 'Coinbase Wallet',
+        'ledger': 'Ledger'
+      };
+
+      const adapterName = walletAdapterMap[walletOption.id];
+      
       // Find the wallet adapter
       const walletAdapter = wallets.find(w => 
-        w.adapter.name.toLowerCase().includes(walletOption.id) ||
-        walletOption.id.includes(w.adapter.name.toLowerCase())
+        w.adapter.name === adapterName ||
+        w.adapter.name.toLowerCase() === walletOption.id.toLowerCase()
       );
 
+      // Debug: Log all available wallets
+      console.log('Available wallets:', wallets.map(w => ({ name: w.adapter.name, ready: w.readyState })));
+      console.log('Looking for adapter:', adapterName, 'for wallet option:', walletOption.id);
+      console.log('Wallet adapter mapping:', walletAdapterMap);
+      console.log('Found wallet adapter:', walletAdapter?.adapter.name);
+
       if (walletAdapter) {
-        // Select the wallet first
+        console.log(`🔗 Connecting to ${walletOption.name} using adapter: ${walletAdapter.adapter.name}`);
+        console.log('Wallet adapter ready state:', walletAdapter.readyState);
+        console.log('Wallet adapter instance:', walletAdapter.adapter);
+        
+        // Use standard flow for all wallets, including TrashPack
+        console.log('Using standard connection flow...');
         select(walletAdapter.adapter.name);
-        
-        // Wait a moment for the selection to take effect
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Now try to connect
+        await new Promise(resolve => setTimeout(resolve, 300));
         await connect();
+        console.log('✅ Standard connection successful!');
+        
+        // Force update main wallet state after connection
+        if (publicKey) {
+          setMainWallet(publicKey.toString());
+          console.log('🔄 Manually updated main wallet after connection:', publicKey.toString());
+        }
+        
+        // Wait a bit more for state updates and manually check onboarding
+        setTimeout(() => {
+          console.log('⏰ Delayed check - connected:', connected, 'publicKey:', publicKey?.toString());
+          if (connected && publicKey) {
+            const onboardingCompleted = localStorage.getItem('shitter-onboarding-completed');
+            const sessionWalletExists = localStorage.getItem('shitter-session-wallet-address');
+            
+            console.log('⏰ Delayed onboarding check:', { onboardingCompleted, sessionWalletExists });
+            
+            if (!onboardingCompleted || !sessionWalletExists) {
+              console.log('⏰ Manually triggering onboarding flow');
+              setShowOnboarding(true);
+            }
+          }
+        }, 1000);
       } else {
         // If wallet not found, redirect to installation
         console.log(`Wallet ${walletOption.name} not found, redirecting to installation`);
+        setConnectionError(`Please install ${walletOption.name} wallet extension`);
         window.open(walletOption.url, '_blank');
       }
-    } catch (error) {
-      console.error('Wallet connection failed:', error);
+    } catch (error: any) {
+      console.error('❌ Wallet connection failed:', error);
+      
+      // Provide more specific error messages
+      let errorMessage = error?.message || `Failed to connect to ${walletOption.name}`;
+      
+      if (errorMessage.includes('Invalid public key input')) {
+        errorMessage = `${walletOption.name} wallet returned invalid data. Please ensure you're using a production wallet, not a development/mock version.`;
+      } else if (errorMessage.includes('WalletNotReadyError')) {
+        errorMessage = `${walletOption.name} wallet not ready. Please ensure it's properly installed and unlocked.`;
+      } else if (errorMessage.includes('Mock') || errorMessage.includes('mock')) {
+        errorMessage = `${walletOption.name} appears to be in development/mock mode. Please use a production version of the wallet.`;
+      }
+      
+      setConnectionError(errorMessage);
+      
       // Check if it's a WalletNotSelectedError and provide better handling
-      if (error.name === 'WalletNotSelectedError') {
+      if (error?.name === 'WalletNotSelectedError') {
         console.error('No wallet was selected. Available wallets:', wallets.map(w => w.adapter.name));
+        setConnectionError('Wallet selection failed. Please try again.');
       }
     } finally {
       setIsConnecting(false);
@@ -418,8 +431,8 @@ export function WalletConnection({ onComplete }: WalletConnectionProps = {}) {
                   </span>
                 </div>
                 <p className="text-gray-300 text-sm">{primaryWallet.description}</p>
-                {trashpackError && (
-                  <div className="text-red-400 text-xs mt-2">{trashpackError}</div>
+                {connectionError && (
+                  <div className="text-red-400 text-xs mt-2">{connectionError}</div>
                 )}
               </div>
               
